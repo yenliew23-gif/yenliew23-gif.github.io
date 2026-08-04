@@ -1,6 +1,7 @@
 import type {
   Exercise,
   ExerciseProgressPoint,
+  SetEntry,
   WeeklyVolume,
   Workout,
   WorkoutExercise,
@@ -15,11 +16,37 @@ export function weekStartOf(dateISO: string): string {
   return d.toISOString().slice(0, 10);
 }
 
-export function totalVolume(workout: Workout): number {
-  return workout.exercises.reduce(
-    (sum, ex) => sum + ex.sets.reduce((s, set) => s + set.weight * set.reps, 0),
+/** True when this set is a "weight × reps" set (the only kind that counts toward
+ *  traditional volume and 1RM numbers). */
+export function isWeightRepsSet(set: SetEntry): boolean {
+  return (set.type ?? "weight-reps") === "weight-reps";
+}
+
+/** True when this set tracks reps at all (weight-reps or reps-only). */
+export function hasReps(set: SetEntry): boolean {
+  const t = set.type ?? "weight-reps";
+  return t === "weight-reps" || t === "reps";
+}
+
+/** Sum of (weight * reps) for weight-reps sets only.
+ *  Reps-only, time-based, and distance-based sets do not contribute. */
+function blockVolume(ex: WorkoutExercise): number {
+  return ex.sets.reduce(
+    (sum, set) => (isWeightRepsSet(set) ? sum + (set.weight ?? 0) * (set.reps ?? 0) : sum),
     0
   );
+}
+
+/** Total reps for sets that track reps (weight-reps + reps-only). */
+function blockReps(ex: WorkoutExercise): number {
+  return ex.sets.reduce(
+    (sum, set) => (hasReps(set) ? sum + (set.reps ?? 0) : sum),
+    0
+  );
+}
+
+export function totalVolume(workout: Workout): number {
+  return workout.exercises.reduce((sum, ex) => sum + blockVolume(ex), 0);
 }
 
 export function totalSets(workout: Workout): number {
@@ -27,13 +54,10 @@ export function totalSets(workout: Workout): number {
 }
 
 export function totalReps(workout: Workout): number {
-  return workout.exercises.reduce(
-    (s, ex) => s + ex.sets.reduce((ss, set) => ss + set.reps, 0),
-    0
-  );
+  return workout.exercises.reduce((s, ex) => s + blockReps(ex), 0);
 }
 
-// Epley formula
+// Epley formula — only meaningful for weight-reps sets.
 export function estimated1RM(weight: number, reps: number): number {
   if (reps <= 0) return 0;
   if (reps === 1) return weight;
@@ -67,20 +91,39 @@ export function progressByExercise(
   for (const w of workouts) {
     const ex = w.exercises.find((e) => e.exerciseId === exerciseId);
     if (!ex || ex.sets.length === 0) continue;
-    const maxWeight = Math.max(...ex.sets.map((s) => s.weight));
-    const topSet = ex.sets.reduce(
-      (best, s) => (s.weight > best.weight ? s : best),
-      ex.sets[0]
+
+    // Volume / weight / 1RM only consider weight × reps sets.
+    const wrSets = ex.sets.filter(isWeightRepsSet);
+    if (wrSets.length === 0) {
+      // No traditional lifts in this workout — record a zero point so the date shows up.
+      points.push({
+        date: w.date,
+        maxWeight: 0,
+        topSetVolume: 0,
+        totalVolume: 0,
+        totalReps: blockReps(ex),
+        estimated1RM: 0,
+      });
+      continue;
+    }
+
+    const maxWeight = Math.max(...wrSets.map((s) => s.weight ?? 0));
+    const topSet = wrSets.reduce(
+      (best, s) => ((s.weight ?? 0) > (best.weight ?? 0) ? s : best),
+      wrSets[0]
     );
-    const totalVol = ex.sets.reduce((s, set) => s + set.weight * set.reps, 0);
-    const totalReps = ex.sets.reduce((s, set) => s + set.reps, 0);
+    const totalVol = wrSets.reduce(
+      (s, set) => s + (set.weight ?? 0) * (set.reps ?? 0),
+      0
+    );
+
     points.push({
       date: w.date,
       maxWeight,
-      topSetVolume: topSet.weight * topSet.reps,
+      topSetVolume: (topSet.weight ?? 0) * (topSet.reps ?? 0),
       totalVolume: totalVol,
-      totalReps,
-      estimated1RM: estimated1RM(maxWeight, topSet.reps),
+      totalReps: blockReps(ex),
+      estimated1RM: estimated1RM(topSet.weight ?? 0, topSet.reps ?? 0),
     });
   }
   return points.sort((a, b) => a.date.localeCompare(b.date));
@@ -95,9 +138,12 @@ export function personalRecord(
     const ex = w.exercises.find((e) => e.exerciseId === exerciseId);
     if (!ex) continue;
     for (const s of ex.sets) {
-      const e1rm = estimated1RM(s.weight, s.reps);
-      if (!best || s.weight > best.weight || (s.weight === best.weight && s.reps > best.reps)) {
-        best = { weight: s.weight, reps: s.reps, date: w.date, estimated1RM: e1rm };
+      if (!isWeightRepsSet(s)) continue;
+      const w0 = s.weight ?? 0;
+      const r0 = s.reps ?? 0;
+      const e1rm = estimated1RM(w0, r0);
+      if (!best || w0 > best.weight || (w0 === best.weight && r0 > best.reps)) {
+        best = { weight: w0, reps: r0, date: w.date, estimated1RM: e1rm };
       }
     }
   }

@@ -19,12 +19,22 @@ import type {
   Exercise,
   MuscleGroup,
   SetEntry,
+  SetType,
   Workout,
   WorkoutExercise,
 } from "@/lib/types";
 import { addWorkout, deleteWorkout, getWorkout, updateWorkout, uid } from "@/lib/storage";
 import { useExercises } from "@/lib/hooks";
-import { formatWeight } from "@/lib/format";
+import { formatDuration, formatSetSummary, formatWeight, SET_TYPE_SHORT } from "@/lib/format";
+
+const SET_TYPES: SetType[] = [
+  "weight-reps",
+  "reps",
+  "weight-time",
+  "time",
+  "distance-time",
+  "weight-distance",
+];
 
 const MUSCLE_GROUPS: { value: MuscleGroup; label: string }[] = [
   { value: "chest", label: "Chest" },
@@ -45,8 +55,11 @@ function todayISO() {
 function emptySet(prev?: SetEntry): SetEntry {
   return {
     id: uid(),
-    weight: prev?.weight ?? 0,
-    reps: prev?.reps ?? 0,
+    type: prev?.type ?? "weight-reps",
+    weight: prev?.weight,
+    reps: prev?.reps,
+    duration: prev?.duration,
+    distance: prev?.distance,
   };
 }
 
@@ -207,9 +220,18 @@ export function WorkoutEditor({
 
   function save() {
     if (blocks.length === 0) return;
-    // prune empty blocks
+    // prune empty blocks — a block is "empty" when none of its sets have any
+    // value entered (weight, reps, duration, or distance).
     const cleaned = blocks
-      .filter((b) => b.sets.some((s) => s.weight > 0 || s.reps > 0))
+      .filter((b) =>
+        b.sets.some(
+          (s) =>
+            (s.weight ?? 0) > 0 ||
+            (s.reps ?? 0) > 0 ||
+            (s.duration ?? 0) > 0 ||
+            (s.distance ?? 0) > 0
+        )
+      )
       .map((b, i) => ({ ...b, order: i }));
 
     if (cleaned.length === 0) return;
@@ -343,58 +365,24 @@ export function WorkoutEditor({
             </div>
 
             {/* Sets header */}
-            <div className="mt-3 grid grid-cols-[2rem_minmax(0,1fr)_minmax(0,1fr)_2rem] items-center gap-1.5 text-[10px] uppercase tracking-wide text-zinc-500">
+            <div className="mt-3 grid grid-cols-[2rem_7.5rem_minmax(0,1fr)_minmax(0,1fr)_2rem] items-center gap-1.5 text-[10px] uppercase tracking-wide text-zinc-500">
               <div className="text-center">Set</div>
+              <div className="text-center">Type</div>
               <div className="text-center">Weight (kg)</div>
-              <div className="text-center">Reps</div>
+              <div className="text-center">Reps / Time / Dist</div>
               <div />
             </div>
 
             <div className="mt-1 space-y-1.5">
               {block.sets.map((set, sIdx) => (
-                <div
+                <SetRow
                   key={set.id}
-                  className="grid grid-cols-[2rem_minmax(0,1fr)_minmax(0,1fr)_2rem] items-center gap-1.5"
-                >
-                  <div className="text-center text-sm font-semibold text-zinc-300">
-                    {sIdx + 1}
-                  </div>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    step="0.5"
-                    min="0"
-                    value={set.weight || ""}
-                    onChange={(e) =>
-                      updateSet(block.id, set.id, {
-                        weight: e.target.value === "" ? 0 : Number(e.target.value),
-                      })
-                    }
-                    className="h-10 w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-1 text-center text-base tabular-nums text-zinc-100 outline-none focus:border-emerald-500"
-                  />
-                  <input
-                    type="number"
-                    inputMode="numeric"
-                    step="1"
-                    min="0"
-                    value={set.reps || ""}
-                    onChange={(e) =>
-                      updateSet(block.id, set.id, {
-                        reps: e.target.value === "" ? 0 : Number(e.target.value),
-                      })
-                    }
-                    className="h-10 w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-1 text-center text-base tabular-nums text-zinc-100 outline-none focus:border-emerald-500"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => removeSet(block.id, set.id)}
-                    disabled={block.sets.length <= 1}
-                    className="flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-800 disabled:opacity-30"
-                    aria-label="Remove set"
-                  >
-                    <X className="h-4 w-4" />
-                  </button>
-                </div>
+                  set={set}
+                  index={sIdx}
+                  onChange={(patch) => updateSet(block.id, set.id, patch)}
+                  onRemove={() => removeSet(block.id, set.id)}
+                  canRemove={block.sets.length > 1}
+                />
               ))}
             </div>
 
@@ -669,6 +657,194 @@ function ExerciseNoteEditor({
         rows={2}
         placeholder="e.g. Incline press, focus on chest, elbows tucked at 60°"
         className="w-full resize-none rounded-md border border-zinc-800 bg-zinc-950 px-2 py-1.5 text-xs text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500"
+      />
+    </div>
+  );
+}
+
+function SetRow({
+  set,
+  index,
+  onChange,
+  onRemove,
+  canRemove,
+}: {
+  set: SetEntry;
+  index: number;
+  onChange: (patch: Partial<SetEntry>) => void;
+  onRemove: () => void;
+  canRemove: boolean;
+}) {
+  const type: SetType = set.type ?? "weight-reps";
+
+  function num(value: number | undefined): string {
+    if (value === undefined || value === null) return "";
+    // Display durations in minutes with 2 decimals when small,
+    // otherwise just the integer seconds.
+    if (type === "weight-time" || type === "time" || type === "distance-time") {
+      return value === 0 ? "" : String(value);
+    }
+    return value === 0 ? "" : String(value);
+  }
+
+  return (
+    <div className="grid grid-cols-[2rem_7.5rem_minmax(0,1fr)_minmax(0,1fr)_2rem] items-center gap-1.5">
+      <div className="text-center text-sm font-semibold text-zinc-300">
+        {index + 1}
+      </div>
+
+      {/* Type selector */}
+      <select
+        value={type}
+        onChange={(e) => onChange({ type: e.target.value as SetType })}
+        className="h-10 w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-1 text-xs text-zinc-100 outline-none focus:border-emerald-500"
+        aria-label="Set type"
+      >
+        {SET_TYPES.map((t) => (
+          <option key={t} value={t}>
+            {SET_TYPE_SHORT[t]}
+          </option>
+        ))}
+      </select>
+
+      {/* Weight input — only shown for types that use weight */}
+      {type === "weight-reps" || type === "weight-time" || type === "weight-distance" ? (
+        <input
+          type="number"
+          inputMode="decimal"
+          step="0.5"
+          min="0"
+          value={num(set.weight)}
+          onChange={(e) =>
+            onChange({
+              weight: e.target.value === "" ? undefined : Number(e.target.value),
+            })
+          }
+          placeholder="kg"
+          className="h-10 w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-1 text-center text-base tabular-nums text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500"
+        />
+      ) : (
+        <div className="h-10 flex items-center justify-center text-xs text-zinc-600">
+          —
+        </div>
+      )}
+
+      {/* Reps / Time / Distance input — depends on type */}
+      {type === "weight-reps" || type === "reps" ? (
+        <input
+          type="number"
+          inputMode="numeric"
+          step="1"
+          min="0"
+          value={num(set.reps)}
+          onChange={(e) =>
+            onChange({
+              reps: e.target.value === "" ? undefined : Number(e.target.value),
+            })
+          }
+          placeholder="reps"
+          className="h-10 w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-1 text-center text-base tabular-nums text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500"
+        />
+      ) : type === "weight-time" || type === "time" ? (
+        <DurationInput
+          value={set.duration}
+          onChange={(seconds) => onChange({ duration: seconds })}
+        />
+      ) : type === "distance-time" ? (
+        <div className="flex gap-1">
+          <input
+            type="number"
+            inputMode="decimal"
+            step="any"
+            min="0"
+            value={set.distance !== undefined ? set.distance : ""}
+            onChange={(e) =>
+              onChange({
+                distance: e.target.value === "" ? undefined : Number(e.target.value),
+              })
+            }
+            placeholder="m"
+            className="h-10 w-1/2 min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-1 text-center text-base tabular-nums text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500"
+          />
+          <DurationInput
+            value={set.duration}
+            onChange={(seconds) => onChange({ duration: seconds })}
+            className="h-10 w-1/2"
+          />
+        </div>
+      ) : type === "weight-distance" ? (
+        <div className="flex gap-1">
+          <input
+            type="number"
+            inputMode="decimal"
+            step="any"
+            min="0"
+            value={set.distance !== undefined ? set.distance : ""}
+            onChange={(e) =>
+              onChange({
+                distance: e.target.value === "" ? undefined : Number(e.target.value),
+              })
+            }
+            placeholder="m"
+            className="h-10 w-1/2 min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-1 text-center text-base tabular-nums text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500"
+          />
+        </div>
+      ) : null}
+
+      <button
+        type="button"
+        onClick={onRemove}
+        disabled={!canRemove}
+        className="flex h-8 w-8 items-center justify-center rounded-md text-zinc-500 hover:bg-zinc-800 disabled:opacity-30"
+        aria-label="Remove set"
+      >
+        <X className="h-4 w-4" />
+      </button>
+    </div>
+  );
+}
+
+function DurationInput({
+  value,
+  onChange,
+  className,
+}: {
+  value: number | undefined;
+  onChange: (seconds: number) => void;
+  className?: string;
+}) {
+  // Show as M:SS — user edits the minutes and seconds parts.
+  const total = value ?? 0;
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return (
+    <div className={clsx("flex items-stretch overflow-hidden rounded-lg border border-zinc-800 bg-zinc-950 focus-within:border-emerald-500", className)}>
+      <input
+        type="number"
+        inputMode="numeric"
+        min="0"
+        value={m > 0 ? String(m) : ""}
+        onChange={(e) => {
+          const newMin = e.target.value === "" ? 0 : Math.max(0, Number(e.target.value));
+          onChange(newMin * 60 + s);
+        }}
+        placeholder="m"
+        className="w-0 min-w-0 flex-1 bg-transparent text-center text-base tabular-nums text-zinc-100 outline-none placeholder:text-zinc-600"
+      />
+      <span className="self-center text-zinc-500">:</span>
+      <input
+        type="number"
+        inputMode="numeric"
+        min="0"
+        max="59"
+        value={s > 0 ? String(s).padStart(2, "0") : ""}
+        onChange={(e) => {
+          const raw = e.target.value === "" ? 0 : Number(e.target.value);
+          const newSec = Math.max(0, Math.min(59, raw));
+          onChange(m * 60 + newSec);
+        }}
+        placeholder="00"
+        className="w-0 min-w-0 flex-1 bg-transparent text-center text-base tabular-nums text-zinc-100 outline-none placeholder:text-zinc-600"
       />
     </div>
   );

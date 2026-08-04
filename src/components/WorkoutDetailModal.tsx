@@ -1,19 +1,25 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowLeft, Pencil, Trophy, TrendingUp, X, Info } from "lucide-react";
+import { ArrowLeft, Pencil, Trophy, TrendingUp, X } from "lucide-react";
 import { WorkoutEditor } from "@/components/WorkoutEditor";
 import { useExercises, useWorkouts } from "@/lib/hooks";
 import {
   estimated1RM,
   exerciseById,
+  isWeightRepsSet,
   progressByExercise,
   totalReps,
   totalSets,
   totalVolume,
 } from "@/lib/stats";
-import { formatDateLong, formatVolume, formatWeight, pluralize } from "@/lib/format";
-import type { Workout } from "@/lib/types";
+import {
+  formatDateLong,
+  formatSetSummary,
+  formatVolume,
+  pluralize,
+} from "@/lib/format";
+import type { SetEntry, Workout } from "@/lib/types";
 
 /**
  * A modal that shows the full detail of a workout, with an edit toggle.
@@ -148,7 +154,6 @@ export function WorkoutDetailModal({
               const series = progressByExercise(workouts, block.exerciseId);
               const lastIdx = series.findIndex((p) => p.date === workout.date);
               const prior = lastIdx > 0 ? series[lastIdx - 1] : undefined;
-              const current = series[lastIdx];
               // Find the actual previous workout containing this exercise
               const previousWorkout = findPreviousWorkoutForExercise(
                 workouts,
@@ -176,29 +181,30 @@ export function WorkoutDetailModal({
 
                   <div className="mt-3 space-y-1.5">
                     {block.sets.map((s, idx) => {
-                      const e1rm = estimated1RM(s.weight, s.reps);
+                      const showE1RM = isWeightRepsSet(s);
+                      const e1rm = showE1RM
+                        ? estimated1RM(s.weight ?? 0, s.reps ?? 0)
+                        : 0;
                       return (
                         <div
                           key={s.id}
                           className="flex items-center justify-between rounded-lg bg-zinc-950/60 px-3 py-2 text-sm"
                         >
-                          <div className="flex items-center gap-3">
+                          <div className="flex min-w-0 items-center gap-3">
                             <span className="w-5 text-center text-zinc-500">
                               {idx + 1}
                             </span>
-                            <span className="tabular-nums text-zinc-100">
-                              {formatWeight(s.weight)}
-                            </span>
-                            <span className="text-zinc-500">×</span>
-                            <span className="tabular-nums text-zinc-100">
-                              {pluralize(s.reps, "rep")}
+                            <span className="truncate tabular-nums text-zinc-100">
+                              {formatSetSummary(s)}
                             </span>
                           </div>
-                          <div className="flex items-center gap-1.5 text-xs text-zinc-500">
-                            <span className="tabular-nums">
-                              e1RM {formatWeight(Math.round(e1rm * 2) / 2)}
-                            </span>
-                            {prior && s.weight > prior.maxWeight && (
+                          <div className="flex shrink-0 items-center gap-1.5 text-xs text-zinc-500">
+                            {showE1RM ? (
+                              <span className="tabular-nums">
+                                e1RM {Math.round(e1rm * 2) / 2}kg
+                              </span>
+                            ) : null}
+                            {showE1RM && prior && (s.weight ?? 0) > prior.maxWeight && (
                               <Trophy className="h-3.5 w-3.5 text-amber-400" />
                             )}
                           </div>
@@ -213,14 +219,15 @@ export function WorkoutDetailModal({
                       <span>
                         Last time:{" "}
                         <span className="tabular-nums text-zinc-200">
-                          {formatWeight(previousTopSet.weight)}
+                          {formatSetSummary(previousTopSet)}
                         </span>
-                        <span className="text-zinc-500"> × </span>
-                        <span className="tabular-nums text-zinc-200">
-                          {previousTopSet.reps}
-                        </span>{" "}
-                        <span className="text-zinc-500">reps</span>
                       </span>
+                    </div>
+                  )}
+
+                  {block.note && (
+                    <div className="mt-3 whitespace-pre-wrap rounded-lg bg-zinc-950/40 px-3 py-2 text-xs text-zinc-300">
+                      {block.note}
                     </div>
                   )}
                 </section>
@@ -265,13 +272,42 @@ function findPreviousWorkoutForExercise(
   return candidates[0] ?? null;
 }
 
-/** Get the heaviest set for an exercise in a workout, or null if none. */
+/**
+ * Pick the "best" set for an exercise in a workout, in a way that makes sense
+ * for the set's type:
+ *  - weight-reps: heaviest weight (ties broken by more reps)
+ *  - reps: most reps
+ *  - weight-time / weight-distance: heaviest weight
+ *  - time: longest duration
+ *  - distance-time: longest distance
+ *
+ * Returns the set itself so the caller can format it with `formatSetSummary`.
+ */
 function topSetForExercise(
   workout: Workout,
   exerciseId: string
-): { weight: number; reps: number } | null {
+): SetEntry | undefined {
   const block = workout.exercises.find((b) => b.exerciseId === exerciseId);
-  if (!block || block.sets.length === 0) return null;
-  const top = block.sets.reduce((best, s) => (s.weight > best.weight ? s : best));
-  return { weight: top.weight, reps: top.reps };
+  if (!block || block.sets.length === 0) return undefined;
+
+  const score = (s: SetEntry): number => {
+    const t = s.type ?? "weight-reps";
+    switch (t) {
+      case "reps":
+        return s.reps ?? 0;
+      case "weight-time":
+      case "weight-distance":
+        return s.weight ?? 0;
+      case "time":
+        return s.duration ?? 0;
+      case "distance-time":
+        return s.distance ?? 0;
+      case "weight-reps":
+      default:
+        // weight primary, reps tiebreaker (caller uses the set directly)
+        return (s.weight ?? 0) * 1000 + (s.reps ?? 0);
+    }
+  };
+
+  return block.sets.reduce((best, s) => (score(s) > score(best) ? s : best));
 }
