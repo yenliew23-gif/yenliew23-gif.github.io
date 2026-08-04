@@ -20,10 +20,25 @@ export interface Exercise {
   archived?: boolean;
 }
 
+export type SetType =
+  | "weight-reps" // weight × reps (default, e.g. bench press)
+  | "reps" // bodyweight + reps (e.g. pull-ups, dips)
+  | "weight-time" // weight × duration (e.g. suitcase carry 32kg × 1min)
+  | "time" // duration only (e.g. plank 60s)
+  | "distance-time" // distance + time (e.g. ran 5km in 28min)
+  | "weight-distance"; // weight × distance (e.g. sled push 50kg × 30m)
+
 export interface SetEntry {
   id: string;
-  weight: number; // in kg
-  reps: number;
+  type?: SetType; // defaults to "weight-reps" when missing (back-compat)
+  // Weight (kg). Used for weight-reps and weight-time and weight-distance.
+  weight?: number;
+  // Reps. Used for weight-reps and reps.
+  reps?: number;
+  // Duration in seconds. Used for weight-time and time and distance-time.
+  duration?: number;
+  // Distance in meters. Used for distance-time and weight-distance.
+  distance?: number;
   // optional RPE (rate of perceived exertion) 1-10
   rpe?: number;
 }
