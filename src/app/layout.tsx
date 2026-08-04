@@ -23,16 +23,6 @@ export const metadata: Metadata = {
     title: "Gym Tracker",
   },
   formatDetection: { telephone: false },
-  icons: {
-    icon: [
-      { url: "/icon.svg", type: "image/svg+xml" },
-      { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
-      { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
-    ],
-    apple: [
-      { url: "/apple-touch-icon.png", sizes: "180x180", type: "image/png" },
-    ],
-  },
 };
 
 export const viewport: Viewport = {
@@ -54,6 +44,32 @@ export default function RootLayout({
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        <link rel="manifest" href="/manifest.webmanifest" />
+        <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+        <link
+          rel="apple-touch-icon"
+          href="/apple-touch-icon.png"
+          sizes="180x180"
+        />
+        <script
+          // Register the service worker so the site qualifies for
+          // "Install app" on Android Chrome and runs offline.
+          // Use a relative path so it works for both root hosting
+          // (Vercel / custom domain) and GitHub Pages under /gym-tracker/.
+          dangerouslySetInnerHTML={{
+            __html: `
+              if ('serviceWorker' in navigator) {
+                window.addEventListener('load', function () {
+                  navigator.serviceWorker.register('sw.js', { scope: './' }).catch(function (err) {
+                    console.warn('SW registration failed', err);
+                  });
+                });
+              }
+            `,
+          }}
+        />
+      </head>
       <body className="min-h-full">
         <AppGate>{children}</AppGate>
       </body>
