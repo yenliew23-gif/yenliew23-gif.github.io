@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <rect width="512" height="512" fill="#0a0a0a"/>
+  <!-- Safe zone: middle 80% of the canvas. -->
+  <g stroke="#10b981" stroke-width="40" stroke-linecap="round" fill="none">
+    <line x1="180" y1="200" x2="180" y2="312"/>
+    <line x1="140" y1="232" x2="140" y2="280"/>
+    <line x1="220" y1="232" x2="220" y2="280"/>
+    <line x1="332" y1="200" x2="332" y2="312"/>
+    <line x1="292" y1="232" x2="292" y2="280"/>
+    <line x1="372" y1="232" x2="372" y2="280"/>
+    <line x1="180" y1="256" x2="332" y2="256"/>
+  </g>
+</svg>
