@@ -2,7 +2,7 @@
 // Caches the app shell + static assets so the PWA installs properly,
 // works offline, and refreshes in the background.
 
-const CACHE_VERSION = "gym-tracker-v1";
+const CACHE_VERSION = "gym-tracker-v2";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
