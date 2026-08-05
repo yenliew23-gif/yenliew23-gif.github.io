@@ -52,10 +52,10 @@ function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
 
-function emptySet(prev?: SetEntry): SetEntry {
+function emptySet(prev?: SetEntry, defaultType: SetType = "weight-reps"): SetEntry {
   return {
     id: uid(),
-    type: prev?.type ?? "weight-reps",
+    type: prev?.type ?? defaultType,
     weight: prev?.weight,
     reps: prev?.reps,
     duration: prev?.duration,
@@ -63,12 +63,41 @@ function emptySet(prev?: SetEntry): SetEntry {
   };
 }
 
-function emptyExerciseBlock(exerciseId: string, prev?: WorkoutExercise): WorkoutExercise {
+/**
+ * If an exercise name starts with "BW" or "Bodyweight" (case-insensitive),
+ * the user almost certainly means a pure-reps movement, so the first set
+ * should default to the "reps" type instead of "weight-reps". Anything else
+ * falls through to the normal weight-reps default.
+ *
+ * Examples that auto-pick "reps":
+ *   "BW Dips", "bw lunges", "Bodyweight Squats", "BODYWEIGHT Pull-ups"
+ * Examples that stay on "weight-reps":
+ *   "Barbell Squat", "Dumbbell Row", "Banded Pull-apart"
+ */
+function defaultSetTypeForExercise(ex?: Exercise): SetType {
+  if (!ex) return "weight-reps";
+  const name = ex.name.trim().toLowerCase();
+  if (
+    name === "bw" ||
+    name.startsWith("bw ") ||
+    name === "bodyweight" ||
+    name.startsWith("bodyweight ")
+  ) {
+    return "reps";
+  }
+  return "weight-reps";
+}
+
+function emptyExerciseBlock(ex: Exercise, prev?: WorkoutExercise): WorkoutExercise {
+  const defaultType = defaultSetTypeForExercise(ex);
   return {
     id: uid(),
-    exerciseId,
+    exerciseId: ex.id,
     order: 0,
-    sets: prev?.sets && prev.sets.length > 0 ? prev.sets.map((s) => ({ ...s, id: uid() })) : [emptySet()],
+    sets:
+      prev?.sets && prev.sets.length > 0
+        ? prev.sets.map((s) => ({ ...s, id: uid() }))
+        : [emptySet(undefined, defaultType)],
   };
 }
 
@@ -128,7 +157,7 @@ export function WorkoutEditor({
   function addExerciseBlock(ex: Exercise) {
     setBlocks((cur) => [
       ...cur,
-      { ...emptyExerciseBlock(ex.id), order: cur.length },
+      { ...emptyExerciseBlock(ex), order: cur.length },
     ]);
     setPickerOpen(false);
   }
