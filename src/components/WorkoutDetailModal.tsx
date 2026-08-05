@@ -1,7 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ArrowLeft, Pencil, Trophy, TrendingUp, X } from "lucide-react";
+import clsx from "clsx";
+import {
+  ArrowLeft,
+  Pencil,
+  Trophy,
+  TrendingDown,
+  TrendingUp,
+  Minus,
+  X,
+} from "lucide-react";
 import { WorkoutEditor } from "@/components/WorkoutEditor";
 import { useExercises, useWorkouts } from "@/lib/hooks";
 import {
@@ -19,7 +28,7 @@ import {
   formatVolume,
   pluralize,
 } from "@/lib/format";
-import type { SetEntry, Workout } from "@/lib/types";
+import type { SetEntry, SetType, Workout } from "@/lib/types";
 
 /**
  * A modal that shows the full detail of a workout, with an edit toggle.
@@ -163,6 +172,8 @@ export function WorkoutDetailModal({
               const previousTopSet = previousWorkout
                 ? topSetForExercise(previousWorkout, block.exerciseId)
                 : undefined;
+              const currentTopSet = topSetForSets(block.sets);
+              const trend: Trend = compareTopSets(currentTopSet, previousTopSet);
               return (
                 <section
                   key={block.id}
@@ -177,6 +188,9 @@ export function WorkoutDetailModal({
                         {ex?.muscleGroup ?? ""}
                       </div>
                     </div>
+                    {currentTopSet && previousTopSet && trend !== "none" && (
+                      <TrendPill trend={trend} compact />
+                    )}
                   </div>
 
                   <div className="mt-3 space-y-1.5">
@@ -213,16 +227,12 @@ export function WorkoutDetailModal({
                     })}
                   </div>
 
-                  {previousTopSet && (
-                    <div className="mt-3 flex items-center gap-1.5 text-xs text-zinc-400">
-                      <TrendingUp className="h-3.5 w-3.5" />
-                      <span>
-                        Last time:{" "}
-                        <span className="tabular-nums text-zinc-200">
-                          {formatSetSummary(previousTopSet)}
-                        </span>
-                      </span>
-                    </div>
+                  {previousTopSet && currentTopSet && (
+                    <LastTimeLine
+                      current={currentTopSet}
+                      previous={previousTopSet}
+                      trend={trend}
+                    />
                   )}
 
                   {block.note && (
@@ -242,6 +252,151 @@ export function WorkoutDetailModal({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+// ----- Trend + last-time comparison -----
+
+type Trend = "up" | "down" | "flat" | "none";
+
+/** Single-score representation of a set, type-aware (mirrors the per-type
+ *  scoring in `topSetForExercise` so we can compare two sets of the same
+ *  type and tell which one is "better"). */
+function scoreSet(s: SetEntry): number {
+  const t = s.type ?? "weight-reps";
+  switch (t) {
+    case "reps":
+      return s.reps ?? 0;
+    case "weight-time":
+    case "weight-distance":
+      return s.weight ?? 0;
+    case "time":
+      return s.duration ?? 0;
+    case "distance-time":
+      return s.distance ?? 0;
+    case "weight-reps":
+    default:
+      // weight primary, reps tiebreaker
+      return (s.weight ?? 0) * 1000 + (s.reps ?? 0);
+  }
+}
+
+/** "Best" set in a list — the one with the highest type-aware score. */
+function topSetForSets(sets: SetEntry[]): SetEntry | undefined {
+  if (sets.length === 0) return undefined;
+  return sets.reduce((best, s) => (scoreSet(s) > scoreSet(best) ? s : best));
+}
+
+/** Compare two top sets and tell us whether the current one improved.
+ *  - "none" if either side is missing
+ *  - "flat" if the two sets are of different types (or equal score)
+ *  - "up" / "down" otherwise
+ */
+function compareTopSets(
+  current: SetEntry | undefined,
+  previous: SetEntry | undefined
+): Trend {
+  if (!current || !previous) return "none";
+  const curType: SetType = current.type ?? "weight-reps";
+  const prevType: SetType = previous.type ?? "weight-reps";
+  if (curType !== prevType) return "flat";
+
+  const diff = scoreSet(current) - scoreSet(previous);
+  if (diff === 0) return "flat";
+  // Use a per-type "flat" threshold so a 1-second / 1m / 1-rep noise
+  // doesn't trigger a "regressed" pill on tiny variance.
+  let flatThreshold = 0.5;
+  if (curType === "weight-reps") flatThreshold = 1000; // ≤1kg or weight-tied counts as flat
+  if (Math.abs(diff) < flatThreshold) return "flat";
+  return diff > 0 ? "up" : "down";
+}
+
+function trendClasses(trend: Trend) {
+  if (trend === "up")
+    return {
+      text: "text-emerald-400",
+      icon: "text-emerald-400",
+      underline: "decoration-emerald-500/60",
+    };
+  if (trend === "down")
+    return {
+      text: "text-rose-400",
+      icon: "text-rose-400",
+      underline: "decoration-rose-500/60",
+    };
+  return {
+    text: "text-zinc-200",
+    icon: "text-zinc-400",
+    underline: "decoration-zinc-500/40",
+  };
+}
+
+function trendIcon(trend: Trend, className: string) {
+  if (trend === "up") return <TrendingUp className={className} />;
+  if (trend === "down") return <TrendingDown className={className} />;
+  return <Minus className={className} />;
+}
+
+function trendLabel(trend: Trend) {
+  if (trend === "up") return "Improved";
+  if (trend === "down") return "Regressed";
+  if (trend === "flat") return "Same";
+  return "";
+}
+
+function TrendPill({ trend, compact = false }: { trend: Trend; compact?: boolean }) {
+  if (trend === "none") return null;
+  const c = trendClasses(trend);
+  return (
+    <span
+      className={clsx(
+        "inline-flex items-center gap-1 rounded-full text-[10px] font-medium uppercase tracking-wide",
+        compact ? "px-1.5 py-0.5" : "px-2 py-0.5",
+        trend === "up" && "bg-emerald-500/15",
+        trend === "down" && "bg-rose-500/15",
+        trend === "flat" && "bg-zinc-800",
+        c.text
+      )}
+      title={trendLabel(trend)}
+    >
+      {trendIcon(trend, "h-3 w-3")}
+      {trendLabel(trend)}
+    </span>
+  );
+}
+
+function LastTimeLine({
+  current,
+  previous,
+  trend,
+}: {
+  current: SetEntry;
+  previous: SetEntry;
+  trend: Trend;
+}) {
+  const c = trendClasses(trend);
+  const flat = trend === "flat" || trend === "none";
+  return (
+    <div className="mt-3 flex items-center gap-1.5 text-xs">
+      <span className={c.icon}>{trendIcon(trend, "h-3.5 w-3.5")}</span>
+      <span className="text-zinc-400">Last time:</span>{" "}
+      <span
+        className={clsx(
+          "tabular-nums",
+          c.text,
+          "underline decoration-2 underline-offset-4",
+          c.underline,
+          flat && "decoration-1"
+        )}
+      >
+        {formatSetSummary(previous)}
+      </span>
+      {trend !== "none" && !flat && (
+        <span className={clsx("ml-1 text-[10px] uppercase tracking-wide", c.text)}>
+          ({trend === "up" ? "+" : "−"}vs now)
+        </span>
+      )}
     </div>
   );
 }
@@ -289,25 +444,5 @@ function topSetForExercise(
 ): SetEntry | undefined {
   const block = workout.exercises.find((b) => b.exerciseId === exerciseId);
   if (!block || block.sets.length === 0) return undefined;
-
-  const score = (s: SetEntry): number => {
-    const t = s.type ?? "weight-reps";
-    switch (t) {
-      case "reps":
-        return s.reps ?? 0;
-      case "weight-time":
-      case "weight-distance":
-        return s.weight ?? 0;
-      case "time":
-        return s.duration ?? 0;
-      case "distance-time":
-        return s.distance ?? 0;
-      case "weight-reps":
-      default:
-        // weight primary, reps tiebreaker (caller uses the set directly)
-        return (s.weight ?? 0) * 1000 + (s.reps ?? 0);
-    }
-  };
-
-  return block.sets.reduce((best, s) => (score(s) > score(best) ? s : best));
+  return topSetForSets(block.sets);
 }

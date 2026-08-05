@@ -1,11 +1,12 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo } from "react";
+import { useMemo, useState } from "react";
 import { ChevronRight, Plus, Trophy, Activity } from "lucide-react";
 import { PageShell, PageHeader } from "@/components/PageHeader";
 import { StatCard, DeltaPill } from "@/components/StatCard";
 import { WorkoutCard, type WorkoutTrend } from "@/components/WorkoutCard";
+import { WorkoutDetailModal } from "@/components/WorkoutDetailModal";
 import { useExercises, useWorkouts } from "@/lib/hooks";
 import {
   lastNWeeksVolume,
@@ -19,6 +20,7 @@ import { formatPct, formatVolume, formatWeekLabel, pluralize } from "@/lib/forma
 export default function HomePage() {
   const workouts = useWorkouts();
   const exercises = useExercises();
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const summary = useMemo(() => thisWeekVsLastWeek(workouts), [workouts]);
   const weekly = useMemo(() => lastNWeeksVolume(workouts, 6), [workouts]);
@@ -223,11 +225,18 @@ export default function HomePage() {
                 See all
               </Link>
             </div>
-            <WorkoutCard
-              workout={lastWorkout}
-              exercises={exercises}
-              trend={trendById.get(lastWorkout.id)}
-            />
+            <button
+              type="button"
+              onClick={() => setSelectedId(lastWorkout.id)}
+              className="block w-full text-left active:scale-[0.99] transition-transform"
+              aria-label={`Open ${lastWorkout.name || "workout"} from ${lastWorkout.date}`}
+            >
+              <WorkoutCard
+                workout={lastWorkout}
+                exercises={exercises}
+                trend={trendById.get(lastWorkout.id)}
+              />
+            </button>
           </section>
         )}
 
@@ -239,12 +248,19 @@ export default function HomePage() {
             </h2>
             <div className="space-y-2">
               {recent.slice(1).map((w) => (
-                <WorkoutCard
+                <button
                   key={w.id}
-                  workout={w}
-                  exercises={exercises}
-                  trend={trendById.get(w.id)}
-                />
+                  type="button"
+                  onClick={() => setSelectedId(w.id)}
+                  className="block w-full text-left active:scale-[0.99] transition-transform"
+                  aria-label={`Open ${w.name || "workout"} from ${w.date}`}
+                >
+                  <WorkoutCard
+                    workout={w}
+                    exercises={exercises}
+                    trend={trendById.get(w.id)}
+                  />
+                </button>
               ))}
             </div>
           </section>
@@ -270,6 +286,13 @@ export default function HomePage() {
           </section>
         )}
       </div>
+
+      {selectedId && (
+        <WorkoutDetailModal
+          workoutId={selectedId}
+          onClose={() => setSelectedId(null)}
+        />
+      )}
     </PageShell>
   );
 }
