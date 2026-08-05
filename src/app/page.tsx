@@ -5,7 +5,7 @@ import { useMemo } from "react";
 import { ChevronRight, Plus, Trophy, Activity } from "lucide-react";
 import { PageShell, PageHeader } from "@/components/PageHeader";
 import { StatCard, DeltaPill } from "@/components/StatCard";
-import { WorkoutCard } from "@/components/WorkoutCard";
+import { WorkoutCard, type WorkoutTrend } from "@/components/WorkoutCard";
 import { useExercises, useWorkouts } from "@/lib/hooks";
 import {
   lastNWeeksVolume,
@@ -50,6 +50,22 @@ export default function HomePage() {
     () => workouts.reduce((s, w) => s + totalVolume(w), 0),
     [workouts]
   );
+
+  // Trend map shared by "Last workout" and "Recent" cards. Computed from the
+  // full workout list so the comparison is stable.
+  const trendById = useMemo(() => {
+    const map = new Map<string, WorkoutTrend>();
+    for (let i = 0; i < workouts.length; i++) {
+      const cur = workouts[i];
+      const prev = workouts[i + 1];
+      if (!prev) continue;
+      const dv = totalVolume(cur) - totalVolume(prev);
+      if (Math.abs(dv) < 0.5) map.set(cur.id, "flat");
+      else if (dv > 0) map.set(cur.id, "up");
+      else map.set(cur.id, "down");
+    }
+    return map;
+  }, [workouts]);
 
   return (
     <PageShell>
@@ -207,7 +223,11 @@ export default function HomePage() {
                 See all
               </Link>
             </div>
-            <WorkoutCard workout={lastWorkout} exercises={exercises} />
+            <WorkoutCard
+              workout={lastWorkout}
+              exercises={exercises}
+              trend={trendById.get(lastWorkout.id)}
+            />
           </section>
         )}
 
@@ -219,7 +239,12 @@ export default function HomePage() {
             </h2>
             <div className="space-y-2">
               {recent.slice(1).map((w) => (
-                <WorkoutCard key={w.id} workout={w} exercises={exercises} />
+                <WorkoutCard
+                  key={w.id}
+                  workout={w}
+                  exercises={exercises}
+                  trend={trendById.get(w.id)}
+                />
               ))}
             </div>
           </section>

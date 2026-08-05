@@ -3,11 +3,12 @@
 import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { PageShell, PageHeader } from "@/components/PageHeader";
-import { WorkoutCard } from "@/components/WorkoutCard";
+import { WorkoutCard, type WorkoutTrend } from "@/components/WorkoutCard";
 import { WorkoutDetailModal } from "@/components/WorkoutDetailModal";
 import { useExercises, useWorkouts } from "@/lib/hooks";
 import { formatWeekLabel } from "@/lib/format";
-import { weekStartOf } from "@/lib/stats";
+import { totalVolume, weekStartOf } from "@/lib/stats";
+import type { Workout } from "@/lib/types";
 
 export default function HistoryPage() {
   const workouts = useWorkouts();
@@ -26,6 +27,11 @@ export default function HistoryPage() {
       });
     });
   }, [workouts, exercises, q]);
+
+  // Map every workout id to its volume trend against the previous workout
+  // (by time). We compute this from the unfiltered, un-grouped list so the
+  // comparison stays stable even when the user is filtering by name.
+  const trendById = useMemo(() => buildTrendMap(workouts), [workouts]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, typeof filtered>();
@@ -74,7 +80,11 @@ export default function HistoryPage() {
                   onClick={() => setSelectedId(w.id)}
                   className="block w-full text-left"
                 >
-                  <WorkoutCard workout={w} exercises={exercises} />
+                  <WorkoutCard
+                    workout={w}
+                    exercises={exercises}
+                    trend={trendById.get(w.id)}
+                  />
                 </button>
               ))}
             </div>
@@ -90,4 +100,34 @@ export default function HistoryPage() {
       )}
     </PageShell>
   );
+}
+
+/**
+ * For each workout in the list, compare its total volume against the next-most-
+ * recent workout. The list is expected to be sorted newest-first
+ * (which `getWorkouts()` already does), so a workout at index i is compared to
+ * the workout at index i+1 (the one that came before it in time).
+ *
+ * Returns `undefined` for the very first workout ever logged (no prior).
+ */
+function buildTrendMap(workouts: Workout[]): Map<string, WorkoutTrend> {
+  const map = new Map<string, WorkoutTrend>();
+  for (let i = 0; i < workouts.length; i++) {
+    const cur = workouts[i];
+    const prev = workouts[i + 1];
+    if (!prev) {
+      // Oldest workout — nothing to compare against.
+      continue;
+    }
+    const dv = totalVolume(cur) - totalVolume(prev);
+    // Use a small absolute threshold so a 1-2kg noise doesn't count as a trend.
+    if (Math.abs(dv) < 0.5) {
+      map.set(cur.id, "flat");
+    } else if (dv > 0) {
+      map.set(cur.id, "up");
+    } else {
+      map.set(cur.id, "down");
+    }
+  }
+  return map;
 }

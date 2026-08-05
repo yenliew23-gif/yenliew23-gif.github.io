@@ -12,6 +12,10 @@ import type { WorkoutExercise, WorkoutTemplate } from "@/lib/types";
 export default function LogPage() {
   const templates = useTemplates();
   const [appliedTemplate, setAppliedTemplate] = useState<WorkoutTemplate | null>(null);
+  // "Start blank" sets this to true so the editor appears without a template.
+  // We can't just set appliedTemplate=null because the editor only renders
+  // when appliedTemplate is truthy, so the user would be stuck.
+  const [wantsBlank, setWantsBlank] = useState(false);
   const [hydrated, setHydrated] = useState(false);
 
   useEffect(() => {
@@ -95,7 +99,7 @@ export default function LogPage() {
             </div>
 
             <button
-              onClick={() => setAppliedTemplate(null as unknown as WorkoutTemplate)}
+              onClick={() => setWantsBlank(true)}
               className="mt-3 flex h-11 w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-zinc-700 bg-zinc-900/40 text-sm text-zinc-200"
             >
               <Plus className="h-4 w-4" />
@@ -105,7 +109,7 @@ export default function LogPage() {
         )}
 
         {/* The actual editor */}
-        {hydrated && (appliedTemplate || templates.length === 0) && (
+        {hydrated && (appliedTemplate || wantsBlank || templates.length === 0) && (
           <WorkoutEditor
             mode="create"
             key={appliedTemplate?.id ?? "blank"}
