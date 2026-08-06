@@ -307,15 +307,15 @@ function SyncDataDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
       onClick={onClose}
     >
       <div
-        className="flex max-h-[78dvh] w-full max-w-md flex-col rounded-3xl border border-zinc-800 bg-zinc-950"
+        className="flex max-h-[60dvh] w-full max-w-md flex-col rounded-3xl border border-zinc-800 bg-zinc-950"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Sticky header — always visible */}
-        <div className="sticky top-0 z-10 flex shrink-0 items-center justify-between border-b border-zinc-800 bg-zinc-950 px-5 py-3 rounded-t-3xl">
+        <div className="sticky top-0 z-10 flex shrink-0 items-center justify-between border-b border-zinc-800 bg-zinc-950 px-5 py-2.5 rounded-t-3xl">
           <h2 className="text-base font-semibold text-zinc-100">Sync & data</h2>
           <button
             onClick={onClose}
@@ -327,41 +327,38 @@ function SyncDataDialog({
         </div>
 
         {/* Scrollable body */}
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="flex-1 overflow-y-auto p-4">
           <p className="text-sm text-zinc-400">
             Account: <span className="text-zinc-200">{email}</span>
           </p>
-          <p className="mt-1 break-all text-xs text-zinc-500">
-            User ID: {userId ?? "—"}
-          </p>
 
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-3 text-sm">
-              <div className="text-xs uppercase tracking-wide text-zinc-500">
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-2.5 text-sm">
+              <div className="text-[10px] uppercase tracking-wide text-zinc-500">
                 Local
               </div>
-              <div className="mt-1 text-zinc-200">
+              <div className="mt-0.5 text-zinc-200">
                 {getExercises().length} ex
               </div>
-              <div className="text-zinc-400">
+              <div className="text-xs text-zinc-400">
                 {getWorkouts().length} wk · {getTemplates().length} tpl
               </div>
             </div>
-            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-3 text-sm">
-              <div className="text-xs uppercase tracking-wide text-zinc-500">
+            <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-2.5 text-sm">
+              <div className="text-[10px] uppercase tracking-wide text-zinc-500">
                 Cloud
               </div>
               {counts?.cloud ? (
                 <>
-                  <div className="mt-1 text-zinc-200">
+                  <div className="mt-0.5 text-zinc-200">
                     {counts.cloud.ex} ex
                   </div>
-                  <div className="text-zinc-400">
+                  <div className="text-xs text-zinc-400">
                     {counts.cloud.wk} wk · {counts.cloud.tp} tpl
                   </div>
                 </>
               ) : (
-                <div className="mt-1 text-xs text-zinc-500">
+                <div className="mt-0.5 text-xs text-zinc-500">
                   (tap Pull to fetch)
                 </div>
               )}
@@ -369,7 +366,7 @@ function SyncDataDialog({
           </div>
 
           {pending > 0 && (
-            <div className="mt-3 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-300">
+            <div className="mt-3 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-2.5 text-sm text-amber-300">
               <div>
                 ⚠ {pending} pending write{pending === 1 ? "" : "s"} not yet in
                 cloud.
@@ -386,18 +383,18 @@ function SyncDataDialog({
           )}
 
           {showSignIn && (
-            <div className="mt-3 rounded-2xl border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-200">
-              The error above looks like an auth / RLS issue. Sign out and back
-              in below — your {pending} pending write{pending === 1 ? "" : "s"}{" "}
-              will be retried automatically on re-auth.
+            <div className="mt-3 rounded-2xl border border-rose-500/40 bg-rose-500/10 p-2.5 text-xs text-rose-200">
+              Looks like an auth / RLS issue. Sign out and back in — your{" "}
+              {pending} pending write{pending === 1 ? "" : "s"} will retry
+              automatically.
             </div>
           )}
 
-          <div className="mt-4 flex gap-2">
+          <div className="mt-3 flex gap-2">
             <button
               onClick={refresh}
               disabled={busy}
-              className="flex h-11 flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-500 text-sm font-semibold text-zinc-950 disabled:opacity-50"
+              className="flex h-10 flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-500 text-sm font-semibold text-zinc-950 disabled:opacity-50"
             >
               {busy ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -410,7 +407,7 @@ function SyncDataDialog({
               <button
                 onClick={retryPush}
                 disabled={busy}
-                className="flex h-11 items-center justify-center gap-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-4 text-sm font-semibold text-amber-300 disabled:opacity-50"
+                className="flex h-10 items-center justify-center gap-2 rounded-2xl border border-amber-500/40 bg-amber-500/10 px-3 text-sm font-semibold text-amber-300 disabled:opacity-50"
               >
                 Retry push
               </button>
@@ -421,25 +418,15 @@ function SyncDataDialog({
             <button
               onClick={discardPending}
               disabled={busy}
-              className="mt-2 w-full rounded-2xl border border-zinc-800 px-4 py-2 text-xs text-zinc-400 hover:border-rose-500/40 hover:text-rose-300"
+              className="mt-1.5 w-full rounded-2xl border border-zinc-800 px-4 py-1.5 text-xs text-zinc-400 hover:border-rose-500/40 hover:text-rose-300"
             >
-              Discard {pending} pending write{pending === 1 ? "" : "s"} (no
-              longer push to cloud)
+              Discard {pending} pending write{pending === 1 ? "" : "s"}
             </button>
           )}
 
           {result && (
-            <p className="mt-3 text-sm text-zinc-300">{result}</p>
+            <p className="mt-2 text-sm text-zinc-300">{result}</p>
           )}
-
-          <div className="mt-4 border-t border-zinc-800 pt-3 pb-1 text-[11px] leading-relaxed text-zinc-500">
-            <p>
-              <span className="font-semibold text-zinc-400">How sync works:</span>{" "}
-              every save goes to local first (instant) and is queued for cloud
-              push. Pull also re-tries the queue first so you don&apos;t lose
-              pending writes.
-            </p>
-          </div>
         </div>
       </div>
     </div>
@@ -486,15 +473,15 @@ function AuthModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-6"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
       onClick={onClose}
     >
       <div
-        className="flex max-h-[78dvh] w-full max-w-md flex-col rounded-3xl border border-zinc-800 bg-zinc-950"
+        className="flex max-h-[60dvh] w-full max-w-md flex-col rounded-3xl border border-zinc-800 bg-zinc-950"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Sticky header — always visible */}
-        <div className="sticky top-0 z-10 flex shrink-0 items-center justify-between border-b border-zinc-800 bg-zinc-950 px-5 py-3 rounded-t-3xl">
+        <div className="sticky top-0 z-10 flex shrink-0 items-center justify-between border-b border-zinc-800 bg-zinc-950 px-5 py-2.5 rounded-t-3xl">
           <h2 className="text-base font-semibold text-zinc-100">
             {mode === "signin"
               ? "Sign in"
@@ -514,7 +501,7 @@ function AuthModal({ onClose }: { onClose: () => void }) {
         </div>
 
         {/* Scrollable body */}
-        <div className="flex-1 overflow-y-auto p-5">
+        <div className="flex-1 overflow-y-auto p-4">
           {magicSent ? (
             <div className="py-4 text-center">
               <p className="text-sm text-zinc-300">
