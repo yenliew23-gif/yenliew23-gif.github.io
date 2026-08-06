@@ -106,6 +106,14 @@ export async function fetchAllWorkouts(): Promise<Workout[]> {
 
 // ----- Writes (return the Supabase error so the caller can decide what to do) -----
 
+/**
+ * All "insert" operations actually use upsert under the hood. This is
+ * critical: if a write is retried (because the first attempt failed
+ * mid-flight but actually succeeded server-side, or because the same row
+ * was already pushed from another device), a plain INSERT would fail with
+ * "duplicate key value violates unique constraint". Upsert turns that
+ * into a no-op-or-update, so retries are always safe.
+ */
 export async function insertExerciseRemote(
   ex: Exercise
 ): Promise<{ error: string | null }> {
@@ -114,7 +122,7 @@ export async function insertExerciseRemote(
   const userId = await currentUserId();
   if (!userId) return { error: "Not signed in" };
   const row = { ...exerciseToRow(ex), user_id: userId };
-  const { error } = await sb.from("exercises").insert(row);
+  const { error } = await sb.from("exercises").upsert(row, { onConflict: "id" });
   return { error: error?.message ?? null };
 }
 
@@ -147,7 +155,7 @@ export async function insertWorkoutRemote(
   const userId = await currentUserId();
   if (!userId) return { error: "Not signed in" };
   const row = { ...workoutToRow(w), user_id: userId };
-  const { error } = await sb.from("workouts").insert(row);
+  const { error } = await sb.from("workouts").upsert(row, { onConflict: "id" });
   return { error: error?.message ?? null };
 }
 
@@ -225,7 +233,7 @@ export async function insertTemplateRemote(
   const userId = await currentUserId();
   if (!userId) return { error: "Not signed in" };
   const row = { ...templateToRow(t), user_id: userId };
-  const { error } = await sb.from("workout_templates").insert(row);
+  const { error } = await sb.from("workout_templates").upsert(row, { onConflict: "id" });
   return { error: error?.message ?? null };
 }
 
