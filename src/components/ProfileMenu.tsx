@@ -215,8 +215,32 @@ function SyncDataDialog({
           setLastError((e as Error).message);
         });
     }
+
+    // Also listen to the background retry events fired by storage.ts.
+    // Without this, the dialog only knows about flushes IT triggered
+    // (via the useEffect above or the Retry push button) — every failed
+    // background retry would update the local pending count but the user
+    // would never see the error until they manually triggered a flush.
+    const onFailed = (e: Event) => {
+      const r = (e as CustomEvent<{ remaining: number; lastError?: string }>).detail;
+      setPending(r.remaining);
+      setLastError(r.lastError ?? null);
+      if (r.lastError) {
+        setResult(`Background retry failed: ${r.lastError}`);
+      }
+    };
+    const onSuccess = () => {
+      setPending(getPendingCount());
+      setLastError(null);
+      setResult("Cloud caught up — all pending writes pushed.");
+    };
+    window.addEventListener("gym:sync-failed", onFailed);
+    window.addEventListener("gym:sync-success", onSuccess);
+
     return () => {
       cancelled = true;
+      window.removeEventListener("gym:sync-failed", onFailed);
+      window.removeEventListener("gym:sync-success", onSuccess);
     };
   }, []);
 

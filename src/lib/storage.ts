@@ -87,6 +87,13 @@ export async function flushPending(): Promise<{ remaining: number; lastError?: s
   if (flushing) return { remaining: getPending().length };
   if (!getSupabase()) return { remaining: getPending().length };
   flushing = true;
+  // Helpful for debugging — open browser dev tools to see the live error
+  // when the in-app banner isn't telling the full story.
+  const pendingBefore = getPending().length;
+  if (pendingBefore > 0) {
+    // eslint-disable-next-line no-console
+    console.log(`[gym-tracker] flushPending: ${pendingBefore} pending`);
+  }
   try {
     let ops = getPending();
     let lastError: string | undefined;
@@ -150,6 +157,10 @@ export async function flushPending(): Promise<{ remaining: number; lastError?: s
     // queue stuck — we keep trying with backoff until it drains or the user
     // explicitly discards.
     if (ops.length > 0) {
+      if (lastError) {
+        // eslint-disable-next-line no-console
+        console.warn(`[gym-tracker] flushPending: ${ops.length} still failing — ${lastError}`);
+      }
       scheduleBackgroundRetry();
     }
     return { remaining: ops.length, lastError };
