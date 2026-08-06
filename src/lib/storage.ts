@@ -145,10 +145,118 @@ export async function flushPending(): Promise<{ remaining: number; lastError?: s
       if (!madeProgress) break; // avoid infinite loop if all ops fail
     }
     setPending(ops);
+    // If anything is still pending, schedule a background retry. This means
+    // a single failed push (e.g. transient network blip) doesn't leave the
+    // queue stuck — we keep trying with backoff until it drains or the user
+    // explicitly discards.
+    if (ops.length > 0) {
+      scheduleBackgroundRetry();
+    }
     return { remaining: ops.length, lastError };
   } finally {
     flushing = false;
   }
+}
+
+// ----- Background retry with exponential backoff -----
+//
+// After any save, we already call flushPending() which attempts the push
+// immediately. If it fails, instead of waiting for the user to click
+// "Retry push" or for them to make another change, we schedule retries
+// in the background with exponential backoff. We also kick a retry on
+// window focus and on the browser "online" event so the queue drains
+// automatically when the user comes back to the app or their connection
+// comes back.
+
+const RETRY_DELAYS_MS = [
+  1_000, //   1 s
+  5_000, //   5 s
+  15_000, // 15 s
+  60_000, //  1 min
+  300_000, //  5 min
+  600_000, // 10 min  (cap)
+];
+
+let retryAttempt = 0;
+let retryTimer: ReturnType<typeof setTimeout> | null = null;
+let backgroundRetryInitialized = false;
+
+function clearRetryTimer() {
+  if (retryTimer != null) {
+    clearTimeout(retryTimer);
+    retryTimer = null;
+  }
+}
+
+function scheduleBackgroundRetry() {
+  if (typeof window === "undefined") return;
+  if (!getSupabase()) return; // not configured — nothing to push to
+  if (getPendingCount() === 0) {
+    retryAttempt = 0;
+    return;
+  }
+  if (retryTimer != null) return; // a retry is already pending
+
+  const delay =
+    RETRY_DELAYS_MS[Math.min(retryAttempt, RETRY_DELAYS_MS.length - 1)];
+
+  retryTimer = setTimeout(async () => {
+    retryTimer = null;
+    if (getPendingCount() === 0) {
+      retryAttempt = 0;
+      return;
+    }
+    const r = await flushPending();
+    if (r.remaining === 0) {
+      // Drained — reset backoff and notify the UI.
+      retryAttempt = 0;
+      window.dispatchEvent(new CustomEvent("gym:sync-success"));
+    } else {
+      // Still failing — bump attempt and re-schedule.
+      retryAttempt++;
+      window.dispatchEvent(
+        new CustomEvent("gym:sync-failed", { detail: r })
+      );
+      scheduleBackgroundRetry();
+    }
+  }, delay);
+}
+
+/** Reset the backoff (e.g. after the user re-auths or comes back online). */
+function resetBackgroundRetry() {
+  retryAttempt = 0;
+  clearRetryTimer();
+  if (getPendingCount() > 0) {
+    scheduleBackgroundRetry();
+  }
+}
+
+/**
+ * Wire up window focus + online listeners so the queue retries the moment
+ * the user comes back to the app or their connection comes back. Safe to
+ * call multiple times. Idempotent.
+ */
+export function initBackgroundSync() {
+  if (typeof window === "undefined") return;
+  if (backgroundRetryInitialized) return;
+  backgroundRetryInitialized = true;
+
+  // Try once on boot, in case the queue has stale writes from a previous
+  // session (offline, backgrounded tab, etc.).
+  if (getPendingCount() > 0) {
+    scheduleBackgroundRetry();
+  }
+
+  // App foregrounded → flush immediately, with a fresh backoff.
+  window.addEventListener("focus", resetBackgroundRetry);
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible") {
+      resetBackgroundRetry();
+    }
+  });
+
+  // Network came back online → try again.
+  window.addEventListener("online", resetBackgroundRetry);
 }
 
 // ----- Exercises -----

@@ -5,6 +5,7 @@ import { Loader2, Settings, X, CloudOff } from "lucide-react";
 import { useAuth, useCloudSync, seedIfEmpty } from "@/lib/hooks";
 import { readSupabaseConfig } from "@/lib/supabase";
 import { loadStoredConfig, saveStoredConfig, clearStoredConfig } from "@/lib/auth";
+import { initBackgroundSync } from "@/lib/storage";
 
 /**
  * Wraps the whole app. Always renders the app — sign-in is optional and
@@ -14,6 +15,11 @@ export function AppGate({ children }: { children: React.ReactNode }) {
   const { status } = useAuth();
   // Cloud sync only runs when signed in.
   useCloudSync(status);
+  // Start the background retry loop (window focus / online / exponential
+  // backoff) — see storage.ts.
+  useEffect(() => {
+    initBackgroundSync();
+  }, []);
   // Seed sample data only in fully-local mode.
   useEffect(() => {
     if (status === "no-cloud") seedIfEmpty();
