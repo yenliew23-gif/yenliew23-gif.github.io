@@ -22,6 +22,7 @@ import { useAuth } from "@/lib/hooks";
 import { signInWithUsername, signUpWithUsername, signOut } from "@/lib/auth";
 import {
   clearLocal,
+  discardPendingWrites,
   flushPending,
   getExercises,
   getPendingCount,
@@ -178,13 +179,18 @@ function SyncDataDialog({
 }) {
   const [busy, setBusy] = useState(false);
   const [result, setResult] = useState<string | null>(null);
+  const [lastError, setLastError] = useState<string | null>(null);
   const [pending, setPending] = useState(0);
   const [counts, setCounts] = useState<{
     local: { ex: number; wk: number; tp: number };
     cloud: { ex: number; wk: number; tp: number } | null;
   } | null>(null);
+  const [showSignIn, setShowSignIn] = useState(false);
 
+  // Capture the latest push error as soon as the dialog opens, so the user
+  // can see WHY writes are stuck without having to click "Retry push" first.
   useEffect(() => {
+    let cancelled = false;
     setPending(getPendingCount());
     setCounts({
       local: {
@@ -194,7 +200,43 @@ function SyncDataDialog({
       },
       cloud: null,
     });
-  }, [result]);
+    if (getPendingCount() > 0) {
+      flushPending()
+        .then((r) => {
+          if (cancelled) return;
+          setPending(r.remaining);
+          setLastError(r.lastError ?? null);
+          if (r.lastError) {
+            setResult(`Last attempt failed: ${r.lastError}`);
+          }
+        })
+        .catch((e) => {
+          if (cancelled) return;
+          setLastError((e as Error).message);
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Heuristic: if the error smells like an auth/RLS issue, surface a sign-in
+  // CTA. The user can always re-auth without losing the pending writes.
+  useEffect(() => {
+    if (!lastError) {
+      setShowSignIn(false);
+      return;
+    }
+    const e = lastError.toLowerCase();
+    setShowSignIn(
+      e.includes("not signed in") ||
+        e.includes("jwt") ||
+        e.includes("auth") ||
+        e.includes("row-level security") ||
+        e.includes("permission") ||
+        e.includes("401")
+    );
+  }, [lastError]);
 
   async function refresh() {
     setBusy(true);
@@ -232,20 +274,35 @@ function SyncDataDialog({
     setBusy(true);
     setResult(null);
     try {
-      const { remaining, lastError } = await flushPending();
+      const { remaining, lastError: err } = await flushPending();
       setPending(remaining);
+      setLastError(err ?? null);
       setResult(
         remaining === 0
           ? "All pending writes pushed to cloud."
-          : lastError
-          ? `Still failing: ${lastError}`
+          : err
+          ? `Still failing: ${err}`
           : `${remaining} operation${remaining === 1 ? "" : "s"} still failed. Check your network.`
       );
     } catch (e) {
+      setLastError((e as Error).message);
       setResult(`Push failed: ${(e as Error).message}`);
     } finally {
       setBusy(false);
     }
+  }
+
+  function discardPending() {
+    if (
+      !confirm(
+        `Discard ${pending} pending write${pending === 1 ? "" : "s"}? This data will only exist locally after this — it will NOT go to the cloud.`
+      )
+    )
+      return;
+    const dropped = discardPendingWrites();
+    setPending(0);
+    setLastError(null);
+    setResult(`Dropped ${dropped} pending write${dropped === 1 ? "" : "s"}.`);
   }
 
   return (
@@ -313,8 +370,28 @@ function SyncDataDialog({
 
           {pending > 0 && (
             <div className="mt-3 rounded-2xl border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-300">
-              ⚠ {pending} pending write{pending === 1 ? "" : "s"} not yet in
-              cloud (network or RLS issue). Tap &quot;Retry push&quot; below.
+              <div>
+                ⚠ {pending} pending write{pending === 1 ? "" : "s"} not yet in
+                cloud.
+              </div>
+              {lastError && (
+                <div className="mt-2 break-words rounded-md bg-zinc-950/50 p-2 font-mono text-[11px] text-amber-200">
+                  {lastError}
+                </div>
+              )}
+              {!lastError && (
+                <div className="mt-1 text-xs text-amber-200/80">
+                  Tap &quot;Retry push&quot; to attempt the push again.
+                </div>
+              )}
+            </div>
+          )}
+
+          {showSignIn && (
+            <div className="mt-3 rounded-2xl border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-200">
+              The error above looks like an auth / RLS issue. Sign out and back
+              in below — your {pending} pending write{pending === 1 ? "" : "s"}{" "}
+              will be retried automatically on re-auth.
             </div>
           )}
 
@@ -341,6 +418,17 @@ function SyncDataDialog({
               </button>
             )}
           </div>
+
+          {pending > 0 && (
+            <button
+              onClick={discardPending}
+              disabled={busy}
+              className="mt-2 w-full rounded-2xl border border-zinc-800 px-4 py-2 text-xs text-zinc-400 hover:border-rose-500/40 hover:text-rose-300"
+            >
+              Discard {pending} pending write{pending === 1 ? "" : "s"} (no
+              longer push to cloud)
+            </button>
+          )}
 
           {result && (
             <p className="mt-3 text-sm text-zinc-300">{result}</p>

@@ -302,14 +302,30 @@ export function markSeeded() {
 
 // ----- Reset / Sign-out -----
 
+/**
+ * Wipe the local cache. We deliberately do NOT clear `KEY_PENDING` here — if
+ * the user is signing out to re-authenticate (e.g. an expired session), we
+ * want their queued writes to survive so they can be retried automatically
+ * after sign-in. To deliberately discard pending writes, call
+ * `discardPendingWrites()` separately.
+ */
 export function clearLocal() {
   if (!isBrowser()) return;
   window.localStorage.removeItem(KEY_EXERCISES);
   window.localStorage.removeItem(KEY_WORKOUTS);
   window.localStorage.removeItem(KEY_TEMPLATES);
   window.localStorage.removeItem(KEY_SEEDED);
-  window.localStorage.removeItem(KEY_PENDING);
   window.dispatchEvent(new CustomEvent("gym:data-changed"));
+}
+
+/** Drop any queued cloud writes. Use this only if you're sure you don't want
+ *  them to be retried (e.g. switching to a different account). */
+export function discardPendingWrites(): number {
+  if (!isBrowser()) return 0;
+  const ops = getPending();
+  setPending([]);
+  window.dispatchEvent(new CustomEvent("gym:data-changed"));
+  return ops.length;
 }
 
 // ----- Cloud sync helpers -----
