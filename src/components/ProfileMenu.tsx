@@ -307,11 +307,11 @@ function SyncDataDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4 sm:p-8"
       onClick={onClose}
     >
       <div
-        className="flex max-h-[85dvh] w-full max-w-md flex-col rounded-3xl border border-zinc-800 bg-zinc-950"
+        className="my-auto flex max-h-[85dvh] w-full max-w-md flex-col rounded-3xl border border-zinc-800 bg-zinc-950"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Sticky header — always visible */}
@@ -432,12 +432,12 @@ function SyncDataDialog({
             <p className="mt-3 text-sm text-zinc-300">{result}</p>
           )}
 
-          <div className="mt-4 border-t border-zinc-800 pt-3 text-xs text-zinc-500">
+          <div className="mt-4 border-t border-zinc-800 pt-3 pb-1 text-[11px] leading-relaxed text-zinc-500">
             <p>
               <span className="font-semibold text-zinc-400">How sync works:</span>{" "}
-              every save goes to local first (instant) + queued for cloud push.
-              Pull also re-tries the queue first so you don&apos;t lose pending
-              writes.
+              every save goes to local first (instant) and is queued for cloud
+              push. Pull also re-tries the queue first so you don&apos;t lose
+              pending writes.
             </p>
           </div>
         </div>
@@ -486,11 +486,11 @@ function AuthModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4 sm:p-8"
       onClick={onClose}
     >
       <div
-        className="flex max-h-[85dvh] w-full max-w-md flex-col rounded-3xl border border-zinc-800 bg-zinc-950"
+        className="my-auto flex max-h-[85dvh] w-full max-w-md flex-col rounded-3xl border border-zinc-800 bg-zinc-950"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Sticky header — always visible */}
