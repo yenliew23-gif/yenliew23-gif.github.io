@@ -375,9 +375,7 @@ function SyncDataDialog({
                 cloud.
               </div>
               {lastError && (
-                <div className="mt-2 break-words rounded-md bg-zinc-950/50 p-2 font-mono text-[11px] text-amber-200">
-                  {lastError}
-                </div>
+                <ErrorBlock text={lastError} />
               )}
               {!lastError && (
                 <div className="mt-1 text-xs text-amber-200/80">
@@ -706,4 +704,68 @@ function AuthModal({ onClose }: { onClose: () => void }) {
 // Local helper
 function clsx(...parts: (string | false | null | undefined)[]): string {
   return parts.filter(Boolean).join(" ");
+}
+
+/**
+ * Compact, scrollable display for a push error. Caps height so a long
+ * stack-trace / JSON error doesn't push the rest of the dialog out of view,
+ * and includes a "Copy" button so the user can paste the full text into
+ * chat / a bug report.
+ */
+function ErrorBlock({ text }: { text: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  async function copy() {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Fallback: select the text in a temporary textarea
+      try {
+        const ta = document.createElement("textarea");
+        ta.value = text;
+        ta.style.position = "fixed";
+        ta.style.opacity = "0";
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand("copy");
+        document.body.removeChild(ta);
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1500);
+      } catch {
+        // give up silently
+      }
+    }
+  }
+
+  return (
+    <div className="mt-2 rounded-md bg-zinc-950/50">
+      <pre
+        className={clsx(
+          "overflow-auto whitespace-pre-wrap break-words p-2 font-mono text-[11px] text-amber-200",
+          expanded ? "max-h-48" : "max-h-20"
+        )}
+      >
+        {text}
+      </pre>
+      <div className="flex items-center justify-end gap-1 border-t border-amber-500/20 px-2 py-1">
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          className="rounded px-2 py-0.5 text-[11px] text-amber-200/80 hover:bg-amber-500/10 hover:text-amber-200"
+        >
+          {expanded ? "Collapse" : "See full"}
+        </button>
+        <button
+          type="button"
+          onClick={copy}
+          className="rounded px-2 py-0.5 text-[11px] text-amber-200/80 hover:bg-amber-500/10 hover:text-amber-200"
+        >
+          {copied ? "Copied!" : "Copy"}
+        </button>
+      </div>
+    </div>
+  );
 }
