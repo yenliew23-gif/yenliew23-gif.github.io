@@ -242,6 +242,50 @@ function SyncDataDialog({
     setBusy(true);
     setResult(null);
     try {
+      // Safety net: before pulling, peek at what the cloud has so we can
+      // warn the user if a pull would destroy local data that isn't in the
+      // cloud. We do a dry-run fetch (no overwrite) for the count check.
+      const localBefore = {
+        ex: getExercises().length,
+        wk: getWorkouts().length,
+        tp: getTemplates().length,
+      };
+      let cloudPeek: { ex: number; wk: number; tp: number } | null = null;
+      try {
+        const { fetchAllExercises, fetchAllWorkouts, fetchAllTemplates } = await import(
+          "@/lib/cloud"
+        );
+        const [exs, wks, tps] = await Promise.all([
+          fetchAllExercises(),
+          fetchAllWorkouts(),
+          fetchAllTemplates(),
+        ]);
+        cloudPeek = { ex: exs.length, wk: wks.length, tp: tps.length };
+      } catch {
+        // If peek fails, fall through to the existing pull flow.
+      }
+
+      if (cloudPeek) {
+        const localExtras =
+          Math.max(0, localBefore.ex - cloudPeek.ex) +
+          Math.max(0, localBefore.wk - cloudPeek.wk) +
+          Math.max(0, localBefore.tp - cloudPeek.tp);
+        if (localExtras > 0) {
+          const ok = confirm(
+            `Heads up: pull will OVERWRITE your local data with the cloud copy.\n\n` +
+              `Local has:  ${localBefore.ex} exercises, ${localBefore.wk} workouts, ${localBefore.tp} templates\n` +
+              `Cloud has:  ${cloudPeek.ex} exercises, ${cloudPeek.wk} workouts, ${cloudPeek.tp} templates\n\n` +
+              `If the cloud is missing anything you've logged locally, that data will be LOST.\n\n` +
+              `Continue?`
+          );
+          if (!ok) {
+            setBusy(false);
+            setResult("Pull cancelled. Your local data is untouched.");
+            return;
+          }
+        }
+      }
+
       const r = await pullFromCloud();
       const p = getPendingCount();
       setPending(p);
