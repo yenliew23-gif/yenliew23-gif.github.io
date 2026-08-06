@@ -307,11 +307,11 @@ function SyncDataDialog({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4 sm:p-8"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-6"
       onClick={onClose}
     >
       <div
-        className="my-auto flex max-h-[85dvh] w-full max-w-md flex-col rounded-3xl border border-zinc-800 bg-zinc-950"
+        className="flex max-h-[78dvh] w-full max-w-md flex-col rounded-3xl border border-zinc-800 bg-zinc-950"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Sticky header — always visible */}
@@ -486,11 +486,11 @@ function AuthModal({ onClose }: { onClose: () => void }) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/60 p-4 sm:p-8"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-3 sm:p-6"
       onClick={onClose}
     >
       <div
-        className="my-auto flex max-h-[85dvh] w-full max-w-md flex-col rounded-3xl border border-zinc-800 bg-zinc-950"
+        className="flex max-h-[78dvh] w-full max-w-md flex-col rounded-3xl border border-zinc-800 bg-zinc-950"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Sticky header — always visible */}
