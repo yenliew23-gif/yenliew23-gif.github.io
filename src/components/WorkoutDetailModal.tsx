@@ -193,6 +193,12 @@ export function WorkoutDetailModal({
                     )}
                   </div>
 
+                  {block.note && (
+                    <div className="mt-2 whitespace-pre-wrap rounded-lg bg-zinc-950/40 px-3 py-2 text-xs text-zinc-300">
+                      {block.note}
+                    </div>
+                  )}
+
                   <div className="mt-3 space-y-1.5">
                     {block.sets.map((s, idx) => {
                       const showE1RM = isWeightRepsSet(s);
@@ -233,12 +239,6 @@ export function WorkoutDetailModal({
                       previous={previousTopSet}
                       trend={trend}
                     />
-                  )}
-
-                  {block.note && (
-                    <div className="mt-3 whitespace-pre-wrap rounded-lg bg-zinc-950/40 px-3 py-2 text-xs text-zinc-300">
-                      {block.note}
-                    </div>
                   )}
                 </section>
               );
