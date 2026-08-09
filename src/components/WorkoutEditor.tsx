@@ -281,7 +281,11 @@ export function WorkoutEditor({
         bodyweight: bw,
         exercises: cleaned,
       });
-      router.push(`/history/${created.id}`);
+      // Send the user to the history list — there's no /history/[id] page
+      // in this build (the detail view is a modal opened from the list), so
+      // pushing to that URL used to 404. Tapping the new workout in the
+      // list opens the detail modal.
+      router.push("/history");
       return;
     }
     setSaving(true);
