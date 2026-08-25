@@ -83,73 +83,101 @@ function enqueue(op: PendingOp) {
 }
 
 let flushing = false;
+
+/** Per-op fetch timeout (ms) — single stuck request can no longer block the queue. */
+const OP_TIMEOUT_MS = 12_000;
+
+/** Max ops processed in parallel within a single flush pass. */
+const FLUSH_CONCURRENCY = 5;
+
+/**
+ * Dispatch a single pending op through the Supabase client.
+ * Returns null on success, or an error message on failure. Always resolves
+ * (never throws) so it can be safely used with Promise.all/batch.
+ */
+async function runOp(op: PendingOp): Promise<string | null> {
+  const ac = new AbortController();
+  const timer = setTimeout(() => ac.abort(), OP_TIMEOUT_MS);
+  try {
+    if (op.table === "exercises") {
+      if (op.op === "insert") {
+        const r = await insertExerciseRemote(op.row as unknown as Exercise);
+        return r.error;
+      } else if (op.op === "update") {
+        const r = await updateExerciseRemote(op.row as unknown as Exercise);
+        return r.error;
+      } else {
+        const r = await deleteExerciseRemote(op.id);
+        return r.error;
+      }
+    } else if (op.table === "workouts") {
+      if (op.op === "insert") {
+        const r = await insertWorkoutRemote(op.row as unknown as Workout);
+        return r.error;
+      } else if (op.op === "update") {
+        const r = await updateWorkoutRemote(op.row as unknown as Workout);
+        return r.error;
+      } else {
+        const r = await deleteWorkoutRemote(op.id);
+        return r.error;
+      }
+    } else {
+      if (op.op === "insert") {
+        const r = await insertTemplateRemote(op.row as unknown as WorkoutTemplate);
+        return r.error;
+      } else if (op.op === "update") {
+        const r = await updateTemplateRemote(op.row as unknown as WorkoutTemplate);
+        return r.error;
+      } else {
+        const r = await deleteTemplateRemote(op.id);
+        return r.error;
+      }
+    }
+  } catch (e) {
+    const err = e as Error;
+    return err.name === "AbortError"
+      ? `Request timed out after ${OP_TIMEOUT_MS / 1000}s`
+      : err.message;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function flushPending(): Promise<{ remaining: number; lastError?: string }> {
   if (flushing) return { remaining: getPending().length };
   if (!getSupabase()) return { remaining: getPending().length };
   flushing = true;
-  // Helpful for debugging — open browser dev tools to see the live error
-  // when the in-app banner isn't telling the full story.
   const pendingBefore = getPending().length;
   if (pendingBefore > 0) {
     // eslint-disable-next-line no-console
-    console.log(`[gym-tracker] flushPending: ${pendingBefore} pending`);
+    console.log(`[gym-tracker] flushPending: ${pendingBefore} pending (concurrency=${FLUSH_CONCURRENCY}, timeout=${OP_TIMEOUT_MS / 1000}s)`);
   }
   try {
     let ops = getPending();
     let lastError: string | undefined;
     let safety = ops.length + 1;
     while (ops.length > 0 && safety-- > 0) {
+      const slice = ops.slice(0, FLUSH_CONCURRENCY);
+      const results = await Promise.all(slice.map(runOp));
       const remaining: PendingOp[] = [];
       let madeProgress = false;
-      for (const o of ops) {
-        let err: string | null = null;
-        try {
-          if (o.table === "exercises") {
-            if (o.op === "insert") {
-              const r = await insertExerciseRemote(o.row as unknown as Exercise);
-              err = r.error;
-            } else if (o.op === "update") {
-              const r = await updateExerciseRemote(o.row as unknown as Exercise);
-              err = r.error;
-            } else {
-              const r = await deleteExerciseRemote(o.id);
-              err = r.error;
-            }
-          } else if (o.table === "workouts") {
-            if (o.op === "insert") {
-              const r = await insertWorkoutRemote(o.row as unknown as Workout);
-              err = r.error;
-            } else if (o.op === "update") {
-              const r = await updateWorkoutRemote(o.row as unknown as Workout);
-              err = r.error;
-            } else {
-              const r = await deleteWorkoutRemote(o.id);
-              err = r.error;
-            }
-          } else {
-            if (o.op === "insert") {
-              const r = await insertTemplateRemote(o.row as unknown as WorkoutTemplate);
-              err = r.error;
-            } else if (o.op === "update") {
-              const r = await updateTemplateRemote(o.row as unknown as WorkoutTemplate);
-              err = r.error;
-            } else {
-              const r = await deleteTemplateRemote(o.id);
-              err = r.error;
-            }
-          }
-        } catch (e) {
-          err = (e as Error).message;
-        }
+      for (let i = 0; i < slice.length; i++) {
+        const err = results[i];
         if (err) {
           lastError = err;
-          remaining.push(o);
+          remaining.push(slice[i]);
         } else {
           madeProgress = true;
         }
       }
-      ops = remaining;
+      // Drop the processed slice from the head of the queue and re-append
+      // anything that failed so they get retried on the next pass.
+      const tail = ops.slice(slice.length);
+      ops = [...tail, ...remaining];
       if (!madeProgress) break; // avoid infinite loop if all ops fail
+      // Persist the trimmed queue between batches so a partially-successful
+      // flush isn't lost if the user navigates away mid-flush.
+      setPending(ops);
     }
     setPending(ops);
     // If anything is still pending, schedule a background retry. This means
