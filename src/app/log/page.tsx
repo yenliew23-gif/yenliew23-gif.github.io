@@ -1,16 +1,77 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { Sparkles, Plus, ChevronRight } from "lucide-react";
 import { PageShell, PageHeader } from "@/components/PageHeader";
 import { WorkoutEditor } from "@/components/WorkoutEditor";
-import { useTemplates } from "@/lib/hooks";
+import { useTemplates, useWorkouts } from "@/lib/hooks";
 import { getTemplate, uid } from "@/lib/storage";
-import type { WorkoutExercise, WorkoutTemplate } from "@/lib/types";
+import type {
+  SetEntry,
+  Workout,
+  WorkoutExercise,
+  WorkoutTemplate,
+} from "@/lib/types";
+
+/**
+ * Find the most recent workout (across ALL templates / non-template workouts)
+ * that contains `exerciseId`, and return the sets from that block.
+ *
+ * The caller uses these sets as the pre-fill for a new workout so the user
+ * can pick up where they left off and just bump the weight/reps for
+ * progressive overload — instead of staring at empty sets.
+ */
+function findLastSetsForExercise(
+  workouts: Workout[],
+  exerciseId: string
+): SetEntry[] | null {
+  // getWorkouts() already sorts newest-first, so the first match wins.
+  for (const w of workouts) {
+    const block = w.exercises.find((b) => b.exerciseId === exerciseId);
+    if (block && block.sets && block.sets.length > 0) {
+      // Deep-copy and assign fresh ids so the editor's set-state stays clean.
+      return block.sets.map((s) => ({ ...s, id: uid() }));
+    }
+  }
+  return null;
+}
+
+/**
+ * Read workouts directly from localStorage (not via the useWorkouts hook).
+ * Used so initialBlocks is correct on the editor's first render — useWorkouts()
+ * returns [] until its useEffect runs, which would briefly hide "last time"
+ * data. Falls back to [] if anything goes wrong.
+ */
+function workoutsFromStorage(): Workout[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem("gym.workouts.v1");
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Workout[];
+    if (!Array.isArray(parsed)) return [];
+    // Sort newest-first to match getWorkouts()'s contract.
+    return parsed.sort(
+      (a, b) =>
+        b.date.localeCompare(a.date) || b.createdAt - a.createdAt
+    );
+  } catch {
+    return [];
+  }
+}
+
+function hasAnyValues(s: SetEntry): boolean {
+  return (
+    (s.weight ?? 0) > 0 ||
+    (s.reps ?? 0) > 0 ||
+    (s.duration ?? 0) > 0 ||
+    (s.distance ?? 0) > 0
+  );
+}
 
 export default function LogPage() {
   const templates = useTemplates();
+  const workouts = useWorkouts();
   const [appliedTemplate, setAppliedTemplate] = useState<WorkoutTemplate | null>(null);
   // "Start blank" sets this to true so the editor appears without a template.
   // We can't just set appliedTemplate=null because the editor only renders
@@ -33,18 +94,57 @@ export default function LogPage() {
   }, []);
 
   // Convert a template into pre-filled WorkoutExercise blocks for the editor.
-  const initialBlocks: Omit<WorkoutExercise, never>[] = appliedTemplate
-    ? appliedTemplate.exercises.map((te, idx) => ({
-        id: uid(),
-        exerciseId: te.exerciseId,
-        order: idx,
-        sets: Array.from({ length: te.defaultSets }).map(() => ({
+  // For each exercise, we look up the most recent workout that contained it
+  // and pre-fill from THERE (progressive overload), falling back to the
+  // template's hard-coded defaults if the user has never logged this exercise
+  // before, or if the most recent occurrence had no usable values.
+  //
+  // We read workouts synchronously here (not via useWorkouts) so the editor
+  // gets the right initialBlocks on its very first render. useWorkouts() is
+  // used as a memo dependency so we recompute if workouts change after mount
+  // (e.g. after a cloud sync delivers new data) — but the editor's `key`
+  // forces a fresh mount when the template changes, so users always see the
+  // latest last-workout values for whatever template they pick.
+  const initialBlocks: Omit<WorkoutExercise, never>[] = useMemo(() => {
+    if (!appliedTemplate) return [];
+    // Read directly from localStorage so this is correct on first render
+    // (useWorkouts() would return [] until its effect runs, which would
+    // make us pre-fill template defaults even when last-workout data exists).
+    const allWorkouts =
+      typeof window !== "undefined" ? workoutsFromStorage() : workouts;
+    return appliedTemplate.exercises.map((te, idx) => {
+      const lastSets = findLastSetsForExercise(allWorkouts, te.exerciseId);
+      const lastSetsAreUsable =
+        lastSets && lastSets.some(hasAnyValues);
+
+      let sets: SetEntry[];
+      if (lastSetsAreUsable) {
+        // Progressive overload: carry over the most recent workout's sets
+        // (type, weight, reps, duration, distance) — the user just bumps
+        // the numbers up. This overrides the template's defaultSets count.
+        sets = lastSets!;
+      } else {
+        // First time for this exercise (or last time had no values) — fall
+        // back to the template defaults. We re-emit the same shape `te.defaultSets`
+        // times so the user gets the same starting point as before this change.
+        sets = Array.from({ length: te.defaultSets }).map(() => ({
           id: uid(),
           weight: te.defaultWeight ?? 0,
           reps: te.defaultReps,
-        })),
-      }))
-    : [];
+        }));
+      }
+      return {
+        id: uid(),
+        exerciseId: te.exerciseId,
+        order: idx,
+        sets,
+      };
+    });
+    // We depend on `workouts` from useWorkouts so that when workouts
+    // arrive from cloud sync after mount, the memo invalidates. The editor's
+    // `key={appliedTemplate?.id}` forces a fresh mount on template change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [appliedTemplate, workouts]);
 
   const activeTemplates = templates.filter((t) => !t.archived);
 
