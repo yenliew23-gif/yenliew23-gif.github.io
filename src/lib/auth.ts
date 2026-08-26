@@ -57,14 +57,23 @@ export async function signInWithEmail(
 ): Promise<{ ok: true } | { ok: false; error: string }> {
   const sb = getSupabase();
   if (!sb) return { ok: false, error: "Supabase not configured" };
+  if (!email.trim()) return { ok: false, error: "Email is required" };
   const redirectTo =
     typeof window !== "undefined" ? window.location.origin : undefined;
-  const { error } = await sb.auth.signInWithOtp({
-    email,
-    options: { emailRedirectTo: redirectTo },
-  });
-  if (error) return { ok: false, error: error.message };
-  return { ok: true };
+  try {
+    const { error } = await withTimeout(
+      sb.auth.signInWithOtp({
+        email,
+        options: { emailRedirectTo: redirectTo },
+      }),
+      12_000,
+      "Sign-in timed out — your network or Supabase is unreachable. Check WiFi/cellular and try again."
+    );
+    if (error) return { ok: false, error: friendlyAuthError(error.message) };
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: friendlyAuthError((e as Error).message) };
+  }
 }
 
 // ----- Username + password auth -----
@@ -101,9 +110,17 @@ export async function signInWithUsername(
     return { ok: false, error: "Username and password are required" };
   }
   const email = usernameToEmail(username);
-  const { error } = await sb.auth.signInWithPassword({ email, password });
-  if (error) return { ok: false, error: error.message };
-  return { ok: true, mode: "signin" };
+  try {
+    const { error } = await withTimeout(
+      sb.auth.signInWithPassword({ email, password }),
+      12_000,
+      "Sign-in timed out — your network or Supabase is unreachable. Check WiFi/cellular and try again."
+    );
+    if (error) return { ok: false, error: friendlyAuthError(error.message) };
+    return { ok: true, mode: "signin" };
+  } catch (e) {
+    return { ok: false, error: friendlyAuthError((e as Error).message) };
+  }
 }
 
 export async function signUpWithUsername(
@@ -130,23 +147,31 @@ export async function signUpWithUsername(
     };
   }
   const email = usernameToEmail(trimmed);
-  const { data, error } = await sb.auth.signUp({
-    email,
-    password,
-    options: {
-      emailRedirectTo:
-        typeof window !== "undefined" ? window.location.origin : undefined,
-    },
-  });
-  if (error) return { ok: false, error: error.message };
-  if (!data.session) {
-    return {
-      ok: false,
-      error:
-        "Account created, but sign-in didn't complete. Disable 'Confirm email' in Supabase Auth settings to skip email confirmation.",
-    };
+  try {
+    const { data, error } = await withTimeout(
+      sb.auth.signUp({
+        email,
+        password,
+        options: {
+          emailRedirectTo:
+            typeof window !== "undefined" ? window.location.origin : undefined,
+        },
+      }),
+      12_000,
+      "Sign-up timed out — your network or Supabase is unreachable. Check WiFi/cellular and try again."
+    );
+    if (error) return { ok: false, error: friendlyAuthError(error.message) };
+    if (!data.session) {
+      return {
+        ok: false,
+        error:
+          "Account created, but sign-in didn't complete. Disable 'Confirm email' in Supabase Auth settings to skip email confirmation.",
+      };
+    }
+    return { ok: true, mode: "signup" };
+  } catch (e) {
+    return { ok: false, error: friendlyAuthError((e as Error).message) };
   }
-  return { ok: true, mode: "signup" };
 }
 
 export async function signOut(): Promise<void> {
@@ -243,4 +268,65 @@ export async function processMagicLinkFromUrl(): Promise<{
   }
 
   return { found: false, ok: false };
+}
+
+// ----- Helpers -----
+
+/**
+ * Race a promise against a timeout. If the timeout wins, reject with
+ * `timeoutMessage`. We deliberately do NOT cancel the underlying promise
+ * (Supabase auth calls don't expose AbortController), so this is a soft
+ * timeout — the user gets a clear error after 12s instead of hanging
+ * indefinitely on a failed network.
+ */
+export function withTimeout<T>(
+  promise: PromiseLike<T>,
+  ms: number,
+  timeoutMessage: string
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(timeoutMessage)), ms);
+    Promise.resolve(promise).then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value as T);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
+}
+
+/**
+ * Translate raw Supabase / fetch error messages into something a real human
+ * can act on. The Supabase JS client throws a plain "Failed to fetch" on
+ * any network failure — that's where most "I can't sign in" reports come from.
+ */
+export function friendlyAuthError(message: string): string {
+  const m = (message || "").trim();
+  const lower = m.toLowerCase();
+
+  // Network / DNS / CORS — browser literally couldn't reach the Supabase host.
+  if (
+    lower === "failed to fetch" ||
+    lower.includes("networkerror") ||
+    lower.includes("network request failed") ||
+    lower.includes("load failed") ||
+    lower.includes("err_internet_disconnected") ||
+    lower.includes("err_name_not_resolved") ||
+    lower.includes("err_connection")
+  ) {
+    return "Can't reach the cloud server. Check your network (WiFi/cellular/VPN) and try again. If you're at work or on a corporate network, ask IT if *.supabase.co is blocked.";
+  }
+
+  // Our own timeout message
+  if (lower.includes("timed out") && lower.includes("unreachable")) {
+    return m;
+  }
+
+  // Otherwise pass through — Supabase's auth errors are usually descriptive
+  // (e.g. "Invalid login credentials", "User already registered").
+  return m || "Sign-in failed. Please try again.";
 }
