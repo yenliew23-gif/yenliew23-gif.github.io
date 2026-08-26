@@ -67,6 +67,13 @@ export function useAuth(): {
 /**
  * Pulls from cloud when the user becomes signed in, and pushes any
  * local-only data to the cloud on first sign-in.
+ *
+ * Fire-and-forget: the useEffect returns immediately. The cloud fetch
+ * runs in the background, and the useExercises/useWorkouts/useTemplates
+ * hooks pick up the new data via the "gym:data-changed" event that
+ * storage.ts dispatches after a successful pull. This keeps the page
+ * responsive even when the cloud is slow or has 100+ failing writes
+ * queued.
  */
 export function useCloudSync(status: AuthStatus) {
   useEffect(() => {

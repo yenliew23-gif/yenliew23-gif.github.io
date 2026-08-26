@@ -219,6 +219,13 @@ const RETRY_DELAYS_MS = [
 let retryAttempt = 0;
 let retryTimer: ReturnType<typeof setTimeout> | null = null;
 let backgroundRetryInitialized = false;
+/** When the user-visible queue stays high after several attempts, we pause
+ *  the auto-retry so we stop hammering the cloud every minute. The user can
+ *  still click "Retry push" manually, or it resumes after a long cooldown.
+ *  This prevents the "every click is slow because the queue keeps timing
+ *  out" pattern. */
+const MAX_CONSECUTIVE_FAILURES = 3;
+const COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 
 function clearRetryTimer() {
   if (retryTimer != null) {
@@ -236,6 +243,17 @@ function scheduleBackgroundRetry() {
   }
   if (retryTimer != null) return; // a retry is already pending
 
+  // If we've hit the failure ceiling, schedule one final retry at the
+  // cooldown interval, then give up until the user acts (manual retry,
+  // window focus, online event, re-auth, or page reload).
+  if (retryAttempt >= MAX_CONSECUTIVE_FAILURES) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[gym-tracker] auto-retry paused after ${MAX_CONSECUTIVE_FAILURES} consecutive failures (${getPendingCount()} still pending). Will retry in ~${COOLDOWN_MS / 60_000} min, or on focus/online.`
+    );
+    return;
+  }
+
   const delay =
     RETRY_DELAYS_MS[Math.min(retryAttempt, RETRY_DELAYS_MS.length - 1)];
 
@@ -251,7 +269,8 @@ function scheduleBackgroundRetry() {
       retryAttempt = 0;
       window.dispatchEvent(new CustomEvent("gym:sync-success"));
     } else {
-      // Still failing — bump attempt and re-schedule.
+      // Still failing — bump attempt and re-schedule (with the cooldown
+      // ceiling above preventing a tight loop).
       retryAttempt++;
       window.dispatchEvent(
         new CustomEvent("gym:sync-failed", { detail: r })
