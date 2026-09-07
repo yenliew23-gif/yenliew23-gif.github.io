@@ -1,5 +1,32 @@
 // Small formatting helpers shared across the UI
 
+/**
+ * Format a Date as a local-time yyyy-mm-dd string. Avoids `Date#toISOString()`
+ * which always emits UTC — using it on a non-UTC machine gives the wrong
+ * "today" up to ~24 hours per day. The `en-CA` locale emits yyyy-mm-dd,
+ * which matches the format used throughout the app for `workout.date`,
+ * `weekStartOf`, etc.
+ */
+export function formatLocalDate(d: Date): string {
+  return new Intl.DateTimeFormat("en-CA", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(d);
+}
+
+/** Today's date in local time, yyyy-mm-dd. */
+export function todayLocalISO(): string {
+  return formatLocalDate(new Date());
+}
+
+/** Yesterday's date in local time, yyyy-mm-dd. */
+export function yesterdayLocalISO(): string {
+  const d = new Date();
+  d.setDate(d.getDate() - 1);
+  return formatLocalDate(d);
+}
+
 export function formatVolume(v: number): string {
   if (v >= 10000) return `${(v / 1000).toFixed(1)}t`;
   if (v >= 1000) return `${(v / 1000).toFixed(2)}t`;
@@ -31,8 +58,8 @@ export function formatDateLong(iso: string): string {
 }
 
 export function formatRelativeDay(iso: string): string {
-  const today = new Date().toISOString().slice(0, 10);
-  const yesterday = new Date(Date.now() - 86400000).toISOString().slice(0, 10);
+  const today = todayLocalISO();
+  const yesterday = yesterdayLocalISO();
   if (iso === today) return "Today";
   if (iso === yesterday) return "Yesterday";
   return formatDate(iso);

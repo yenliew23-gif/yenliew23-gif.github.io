@@ -25,7 +25,7 @@ import type {
 } from "@/lib/types";
 import { addWorkout, deleteWorkout, getWorkout, updateWorkout, uid } from "@/lib/storage";
 import { useExercises } from "@/lib/hooks";
-import { formatDuration, formatSetSummary, formatWeight, SET_TYPE_SHORT } from "@/lib/format";
+import { formatDuration, formatSetSummary, formatWeight, SET_TYPE_SHORT, todayLocalISO } from "@/lib/format";
 
 const SET_TYPES: SetType[] = [
   "weight-reps",
@@ -49,7 +49,7 @@ const MUSCLE_GROUPS: { value: MuscleGroup; label: string }[] = [
 ];
 
 function todayISO() {
-  return new Date().toISOString().slice(0, 10);
+  return todayLocalISO();
 }
 
 function emptySet(prev?: SetEntry, defaultType: SetType = "weight-reps"): SetEntry {

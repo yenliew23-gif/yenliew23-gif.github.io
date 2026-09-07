@@ -169,7 +169,14 @@ export function seedIfEmpty() {
   const start = new Date(today);
   start.setDate(today.getDate() - startOffsetDays);
 
-  const iso = (d: Date) => d.toISOString().slice(0, 10);
+  const iso = (d: Date) => {
+    // Local-time yyyy-mm-dd so generated dates align with weekStartOf buckets.
+    return new Intl.DateTimeFormat("en-CA", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+    }).format(d);
+  };
   const sessions: { date: Date; lifts: { exId: string; baseWeight: number; sets: number }[] }[] = [
     { date: new Date(start), lifts: [
       { exId: squat.id, baseWeight: 80, sets: 3 },

@@ -6,6 +6,7 @@ import type {
   Workout,
   WorkoutExercise,
 } from "./types";
+import { formatLocalDate, todayLocalISO } from "./format";
 
 // Get the Monday of the week containing the given date (ISO yyyy-mm-dd)
 export function weekStartOf(dateISO: string): string {
@@ -13,7 +14,7 @@ export function weekStartOf(dateISO: string): string {
   const day = d.getDay(); // 0 = Sunday
   const diff = (day + 6) % 7; // days since Monday
   d.setDate(d.getDate() - diff);
-  return d.toISOString().slice(0, 10);
+  return formatLocalDate(d);
 }
 
 /** True when this set is a "weight × reps" set (the only kind that counts toward
@@ -154,13 +155,14 @@ export function personalRecord(
 export function lastNWeeksVolume(workouts: Workout[], n: number): WeeklyVolume[] {
   const weekly = weeklyVolumes(workouts);
   const result: WeeklyVolume[] = [];
-  const today = new Date();
-  const currentWeekStart = new Date(weekStartOf(today.toISOString().slice(0, 10)) + "T00:00:00");
+  // todayLocalISO() gives the current yyyy-mm-dd in the user's timezone, so
+  // "this week" is anchored to local Monday — not UTC Monday.
+  const currentWeekStart = new Date(weekStartOf(todayLocalISO()) + "T00:00:00");
 
   for (let i = n - 1; i >= 0; i--) {
     const d = new Date(currentWeekStart);
     d.setDate(d.getDate() - i * 7);
-    const key = d.toISOString().slice(0, 10);
+    const key = formatLocalDate(d);
     const found = weekly.find((w) => w.weekStart === key);
     result.push(
       found ?? { weekStart: key, volume: 0, totalSets: 0, totalReps: 0 }
