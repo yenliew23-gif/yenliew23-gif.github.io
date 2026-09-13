@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   LineChart,
   Line,
@@ -12,7 +12,7 @@ import {
   Area,
   AreaChart,
 } from "recharts";
-import { Trophy, TrendingUp, TrendingDown, Info, X } from "lucide-react";
+import { Trophy, TrendingUp, TrendingDown, Info, X, Search } from "lucide-react";
 import clsx from "clsx";
 import { PageShell, PageHeader } from "@/components/PageHeader";
 import { useExercises, useWorkouts } from "@/lib/hooks";
@@ -63,10 +63,40 @@ export default function ProgressPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [metric, setMetric] = useState<Metric>("maxWeight");
   const [showGlossary, setShowGlossary] = useState(false);
+  const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (used.length > 0 && !selectedId) setSelectedId(used[0].id);
   }, [used, selectedId]);
+
+  // Case-insensitive substring match on exercise name. Empty query shows all
+  // used exercises (sorted alphabetically) so first-time visitors still see
+  // something scrollable instead of an empty box.
+  const filteredExercises = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    const sorted = [...used].sort((a, b) => a.name.localeCompare(b.name));
+    if (!needle) return sorted;
+    return sorted.filter((ex) => ex.name.toLowerCase().includes(needle));
+  }, [used, query]);
+
+  // Highlight the matching substring in each result so the user can see
+  // *why* a result matched (or that a near-miss is "close but not it").
+  function highlightMatch(name: string, needle: string) {
+    if (!needle) return name;
+    const lower = name.toLowerCase();
+    const idx = lower.indexOf(needle.toLowerCase());
+    if (idx < 0) return name;
+    return (
+      <>
+        {name.slice(0, idx)}
+        <span className="bg-emerald-500/20 text-emerald-300 rounded-sm">
+          {name.slice(idx, idx + needle.length)}
+        </span>
+        {name.slice(idx + needle.length)}
+      </>
+    );
+  }
 
   const points = useMemo(
     () => (selectedId ? progressByExercise(workouts, selectedId) : []),
@@ -120,27 +150,80 @@ export default function ProgressPage() {
       />
 
       <div className="space-y-4 px-4 pt-4">
-        {/* Exercise selector */}
-        <div className="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4">
-          {used.length === 0 && (
-            <div className="text-sm text-zinc-400">
+        {/* Exercise search */}
+        <div className="space-y-2">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-zinc-500" />
+            <input
+              ref={searchRef}
+              type="search"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search exercises…"
+              className="h-10 w-full rounded-full border border-zinc-800 bg-zinc-900/60 pl-9 pr-4 text-sm text-zinc-100 outline-none placeholder:text-zinc-500 focus:border-emerald-500"
+            />
+          </div>
+
+          {used.length === 0 ? (
+            <div className="rounded-2xl border border-dashed border-zinc-700 bg-zinc-900/40 p-4 text-center text-sm text-zinc-400">
               Log a workout first to see progress.
             </div>
-          )}
-          {used.map((ex) => (
-            <button
-              key={ex.id}
-              onClick={() => setSelectedId(ex.id)}
-              className={clsx(
-                "shrink-0 rounded-full border px-3 py-1.5 text-sm",
-                selectedId === ex.id
-                  ? "border-emerald-500 bg-emerald-500/10 text-emerald-300"
-                  : "border-zinc-800 bg-zinc-900/60 text-zinc-300"
+          ) : (
+            <div className="max-h-64 overflow-y-auto rounded-2xl border border-zinc-800 bg-zinc-900/40">
+              {filteredExercises.length === 0 ? (
+                <div className="p-4 text-center text-sm text-zinc-500">
+                  No exercises match &ldquo;{query}&rdquo;.
+                </div>
+              ) : (
+                <ul className="divide-y divide-zinc-800/60">
+                  {filteredExercises.map((ex) => (
+                    <li key={ex.id}>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setSelectedId(ex.id);
+                          setQuery("");
+                          searchRef.current?.blur();
+                        }}
+                        className={clsx(
+                          "flex w-full items-center justify-between px-3 py-2.5 text-left text-sm transition-colors",
+                          selectedId === ex.id
+                            ? "bg-emerald-500/10 text-emerald-300"
+                            : "text-zinc-200 hover:bg-zinc-800/60"
+                        )}
+                      >
+                        <span className="truncate">
+                          {highlightMatch(ex.name, query.trim())}
+                        </span>
+                        <span className="ml-2 shrink-0 text-[10px] uppercase tracking-wide text-zinc-500">
+                          {ex.muscleGroup}
+                        </span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
               )}
-            >
-              {ex.name}
-            </button>
-          ))}
+            </div>
+          )}
+          {used.length > 0 && (
+            <div className="flex items-center justify-between px-1 text-[10px] uppercase tracking-wide text-zinc-500">
+              <span>
+                {filteredExercises.length} of {used.length} exercises
+              </span>
+              {query && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setQuery("");
+                    searchRef.current?.focus();
+                  }}
+                  className="text-emerald-400 hover:underline"
+                >
+                  Clear
+                </button>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Metric selector */}
