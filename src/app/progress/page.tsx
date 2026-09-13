@@ -12,9 +12,10 @@ import {
   Area,
   AreaChart,
 } from "recharts";
-import { Trophy, TrendingUp, TrendingDown, Info, X, Search } from "lucide-react";
+import { Trophy, TrendingUp, TrendingDown, Info, X, Search, ChevronRight } from "lucide-react";
 import clsx from "clsx";
 import { PageShell, PageHeader } from "@/components/PageHeader";
+import { WorkoutDetailModal } from "@/components/WorkoutDetailModal";
 import { useExercises, useWorkouts } from "@/lib/hooks";
 import { personalRecord, progressByExercise } from "@/lib/stats";
 import { formatDate, formatPct, formatVolume, formatWeight } from "@/lib/format";
@@ -70,6 +71,12 @@ export default function ProgressPage() {
     if (used.length > 0 && !selectedId) setSelectedId(used[0].id);
   }, [used, selectedId]);
 
+  // When the user switches exercises, close any open workout modal so we don't
+  // show a workout from a previous exercise after navigating.
+  useEffect(() => {
+    setOpenWorkoutId(null);
+  }, [selectedId]);
+
   // Case-insensitive substring match on exercise name. Empty query shows all
   // used exercises (sorted alphabetically) so first-time visitors still see
   // something scrollable instead of an empty box.
@@ -106,6 +113,25 @@ export default function ProgressPage() {
     () => (selectedId ? personalRecord(workouts, selectedId) : null),
     [workouts, selectedId]
   );
+
+  // For each date in the progress points, find the workout(s) that contained
+  // this exercise. Used to deep-link from the "All sessions" table to the
+  // full workout detail. Most users have one workout per day, but if there
+  // are multiple, we open the first and append a "(+N more)" hint.
+  const workoutsByDate = useMemo(() => {
+    if (!selectedId) return new Map<string, string[]>();
+    const map = new Map<string, string[]>();
+    for (const w of workouts) {
+      if (w.exercises.some((e) => e.exerciseId === selectedId)) {
+        const list = map.get(w.date) ?? [];
+        list.push(w.id);
+        map.set(w.date, list);
+      }
+    }
+    return map;
+  }, [workouts, selectedId]);
+
+  const [openWorkoutId, setOpenWorkoutId] = useState<string | null>(null);
 
   // Headline change: latest point vs previous
   const headline = useMemo(() => {
@@ -368,14 +394,39 @@ export default function ProgressPage() {
                     <th className="px-3 py-2 text-right">Max</th>
                     <th className="px-3 py-2 text-right">Volume</th>
                     <th className="px-3 py-2 text-right">e1RM</th>
+                    <th className="px-2 py-2 w-6" aria-label="Open" />
                   </tr>
                 </thead>
                 <tbody>
                   {[...points].reverse().map((p, i, arr) => {
-                    const prev = arr[i + 1];
-                    const pr = p.maxWeight === Math.max(...arr.map((x) => x.maxWeight));
+                    const workoutIds = workoutsByDate.get(p.date) ?? [];
+                    const canOpen = workoutIds.length > 0;
+                    const extra = workoutIds.length - 1;
                     return (
-                      <tr key={p.date} className="border-t border-zinc-800/80">
+                      <tr
+                        key={p.date}
+                        className={clsx(
+                          "border-t border-zinc-800/80 transition-colors",
+                          canOpen
+                            ? "cursor-pointer hover:bg-zinc-800/40 active:bg-zinc-800/60"
+                            : ""
+                        )}
+                        onClick={() => {
+                          if (workoutIds[0]) setOpenWorkoutId(workoutIds[0]);
+                        }}
+                        role={canOpen ? "button" : undefined}
+                        tabIndex={canOpen ? 0 : undefined}
+                        onKeyDown={(e) => {
+                          if (
+                            canOpen &&
+                            (e.key === "Enter" || e.key === " ") &&
+                            workoutIds[0]
+                          ) {
+                            e.preventDefault();
+                            setOpenWorkoutId(workoutIds[0]);
+                          }
+                        }}
+                      >
                         <td className="px-3 py-2 text-zinc-200">
                           {formatDate(p.date)}
                         </td>
@@ -388,17 +439,38 @@ export default function ProgressPage() {
                         <td className="px-3 py-2 text-right tabular-nums text-zinc-300">
                           {formatWeight(Math.round(p.estimated1RM * 2) / 2)}
                         </td>
+                        <td className="px-2 py-2 text-right align-middle">
+                          {canOpen && (
+                            <div className="inline-flex items-center gap-1">
+                              {extra > 0 && (
+                                <span className="text-[10px] text-zinc-500">
+                                  +{extra}
+                                </span>
+                              )}
+                              <ChevronRight className="h-4 w-4 text-zinc-500" />
+                            </div>
+                          )}
+                        </td>
                       </tr>
                     );
                   })}
                 </tbody>
               </table>
             </div>
+            <p className="mt-2 px-1 text-[10px] text-zinc-500">
+              Tap any row to open the full workout for that day.
+            </p>
           </section>
         )}
       </div>
 
       {showGlossary && <GlossaryDialog onClose={() => setShowGlossary(false)} />}
+      {openWorkoutId && (
+        <WorkoutDetailModal
+          workoutId={openWorkoutId}
+          onClose={() => setOpenWorkoutId(null)}
+        />
+      )}
     </PageShell>
   );
 }
