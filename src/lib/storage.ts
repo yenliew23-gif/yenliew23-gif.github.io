@@ -22,6 +22,11 @@ const KEY_WORKOUTS = "gym.workouts.v1";
 const KEY_TEMPLATES = "gym.templates.v1";
 const KEY_SEEDED = "gym.seeded.v1";
 const KEY_PENDING = "gym.pending.v1";
+// Tombstones: IDs the user has deleted locally. Cloud sync must NEVER
+// resurrect these, even if the cloud delete op failed to flush. We keep the
+// list forever (well, until the cloud confirms the delete succeeded) — see
+// `pruneTombstonesOnPull()` for the cleanup.
+const KEY_TOMBSTONES = "gym.tombstones.v1";
 
 function isBrowser() {
   return typeof window !== "undefined" && typeof window.localStorage !== "undefined";
@@ -69,6 +74,67 @@ function getPending(): PendingOp[] {
 }
 function setPending(ops: PendingOp[]) {
   writeJSON(KEY_PENDING, ops);
+}
+
+// ----- Tombstones -----
+//
+// When the user deletes a record locally we add its ID to a tombstone list.
+// Subsequent cloud pulls filter these IDs out, so a stale cloud copy can never
+// resurrect a deleted record. The list is pruned when the cloud confirms the
+// delete actually went through (i.e. a pull happens and the tombstoned ID is
+// no longer present in the cloud result).
+type Tombstones = {
+  exercises: string[];
+  workouts: string[];
+  templates: string[];
+};
+const EMPTY_TOMBSTONES: Tombstones = {
+  exercises: [],
+  workouts: [],
+  templates: [],
+};
+function getTombstones(): Tombstones {
+  return readJSON<Tombstones>(KEY_TOMBSTONES, EMPTY_TOMBSTONES);
+}
+function setTombstones(t: Tombstones) {
+  writeJSON(KEY_TOMBSTONES, t);
+}
+function addTombstone(
+  table: "exercises" | "workouts" | "templates",
+  id: string
+) {
+  const t = getTombstones();
+  if (!t[table].includes(id)) {
+    t[table] = [...t[table], id];
+    setTombstones(t);
+  }
+}
+function isTombstoned(
+  table: "exercises" | "workouts" | "templates",
+  id: string
+): boolean {
+  return getTombstones()[table].includes(id);
+}
+/** Strip tombstoned IDs from a list of records (returning the survivors). */
+function filterTombstoned<
+  T extends { id: string },
+  K extends "exercises" | "workouts" | "templates"
+>(table: K, rows: T[]): T[] {
+  const t = getTombstones();
+  return rows.filter((r) => !t[table].includes(r.id));
+}
+/** Drop tombstone entries whose IDs are no longer in the cloud (i.e. the
+ *  delete has been confirmed by the cloud side). */
+function pruneTombstones<K extends "exercises" | "workouts" | "templates">(
+  table: K,
+  cloudIds: Set<string>
+) {
+  const t = getTombstones();
+  const remaining = t[table].filter((id) => cloudIds.has(id));
+  if (remaining.length !== t[table].length) {
+    t[table] = remaining;
+    setTombstones(t);
+  }
 }
 function enqueue(op: PendingOp) {
   const ops = getPending();
@@ -353,6 +419,7 @@ export function updateExercise(id: string, patch: Partial<Exercise>) {
 
 export function deleteExercise(id: string) {
   saveExercisesLocal(getExercises().filter((e) => e.id !== id));
+  addTombstone("exercises", id);
   enqueue({ op: "delete", table: "exercises", id });
   flushPending().catch(() => {});
 }
@@ -400,6 +467,7 @@ export function updateWorkout(id: string, patch: Partial<Workout>) {
 
 export function deleteWorkout(id: string) {
   saveWorkoutsLocal(getWorkouts().filter((w) => w.id !== id));
+  addTombstone("workouts", id);
   enqueue({ op: "delete", table: "workouts", id });
   flushPending().catch(() => {});
 }
@@ -452,6 +520,7 @@ export function updateTemplate(id: string, patch: Partial<WorkoutTemplate>) {
 
 export function deleteTemplate(id: string) {
   saveTemplatesLocal(getTemplates().filter((t) => t.id !== id));
+  addTombstone("templates", id);
   enqueue({ op: "delete", table: "workout_templates", id });
   flushPending().catch(() => {});
 }
@@ -474,6 +543,12 @@ export function markSeeded() {
  * want their queued writes to survive so they can be retried automatically
  * after sign-in. To deliberately discard pending writes, call
  * `discardPendingWrites()` separately.
+ *
+ * Tombstones ARE cleared on sign-out — they're per-device state and the
+ * next sign-in's pull will recreate them naturally based on what's in the
+ * cloud. Keeping tombstones around across sign-outs would just block
+ * legitimate recovery of records that another device legitimately deleted
+ * (e.g. laptop archive + phone re-sync).
  */
 export function clearLocal() {
   if (!isBrowser()) return;
@@ -481,6 +556,7 @@ export function clearLocal() {
   window.localStorage.removeItem(KEY_WORKOUTS);
   window.localStorage.removeItem(KEY_TEMPLATES);
   window.localStorage.removeItem(KEY_SEEDED);
+  window.localStorage.removeItem(KEY_TOMBSTONES);
   window.dispatchEvent(new CustomEvent("gym:data-changed"));
 }
 
@@ -505,16 +581,65 @@ export async function pullFromCloud(): Promise<{
   if (!getSupabase()) return { exercises: [], workouts: [], templates: [] };
   // Flush any pending writes first so we don't overwrite them
   await flushPending();
-  const [exercises, workouts, templates] = await Promise.all([
+  let [exercises, workouts, templates] = await Promise.all([
     fetchAllExercises(),
     fetchAllWorkouts(),
     fetchAllTemplates(),
   ]);
+
+  // The cloud may still hold records the user has deleted locally (the
+  // delete op didn't make it through, or another device re-synced it).
+  // Tombstones ensure locally-deleted records stay gone. We also re-queue
+  // delete ops for anything in the cloud that we tombstoned but the cloud
+  // hasn't yet acknowledged, so the cloud eventually catches up.
+  const liveExercises = filterTombstoned("exercises", exercises);
+  const liveWorkouts = filterTombstoned("workouts", workouts);
+  const liveTemplates = filterTombstoned("templates", templates);
+
+  for (const e of exercises) {
+    if (isTombstoned("exercises", e.id)) {
+      enqueue({ op: "delete", table: "exercises", id: e.id });
+    }
+  }
+  for (const w of workouts) {
+    if (isTombstoned("workouts", w.id)) {
+      enqueue({ op: "delete", table: "workouts", id: w.id });
+    }
+  }
+  for (const t of templates) {
+    if (isTombstoned("templates", t.id)) {
+      enqueue({ op: "delete", table: "workout_templates", id: t.id });
+    }
+  }
+
+  // Prune tombstones for any IDs the cloud no longer has — that means the
+  // delete reached the cloud successfully and we don't need to keep nagging.
+  pruneTombstones(
+    "exercises",
+    new Set(exercises.map((e) => e.id))
+  );
+  pruneTombstones("workouts", new Set(workouts.map((w) => w.id)));
+  pruneTombstones(
+    "templates",
+    new Set(templates.map((t) => t.id))
+  );
+
+  exercises = liveExercises;
+  workouts = liveWorkouts;
+  templates = liveTemplates;
+
   saveExercisesLocal(exercises);
   saveWorkoutsLocal(workouts);
   saveTemplatesLocal(templates);
-  // Clear pending ops since cloud is now the source of truth
-  setPending([]);
+  // Cloud is now the source of truth for non-deleted records; clear pending
+  // inserts/updates that we've just confirmed by pulling. Deletes stay in the
+  // queue (they keep retrying) so the cloud eventually catches up.
+  setPending(
+    getPending().filter((op) => op.op === "delete")
+  );
+  // Best-effort: try to push the re-queued deletes immediately so the cloud
+  // catches up before the next pull.
+  flushPending().catch(() => {});
   return { exercises, workouts, templates };
 }
 
