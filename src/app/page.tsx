@@ -141,6 +141,13 @@ export default function HomePage() {
                         key={w.weekStart}
                         className="flex flex-1 flex-col items-center gap-1"
                       >
+                        {/* Numeric volume above the bar so the user can see
+                            the actual computed value, not just the bar shape.
+                            Helpful when bars look short and you want to know
+                            if it's a real low number or a render bug. */}
+                        <div className="text-[10px] tabular-nums text-zinc-400 h-4">
+                          {w.volume > 0 ? formatVolume(w.volume) : ""}
+                        </div>
                         <div
                           className="w-full rounded-t-md bg-emerald-500/80"
                           style={{ height: `${Math.max(2, heightPct)}%` }}
