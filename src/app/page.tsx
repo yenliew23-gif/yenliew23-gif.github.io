@@ -16,6 +16,7 @@ import {
   totalVolume,
 } from "@/lib/stats";
 import { formatPct, formatVolume, formatWeekLabel, pluralize } from "@/lib/format";
+import type { WeeklyVolume } from "@/lib/types";
 
 export default function HomePage() {
   const workouts = useWorkouts();
@@ -24,7 +25,6 @@ export default function HomePage() {
 
   const summary = useMemo(() => thisWeekVsLastWeek(workouts), [workouts]);
   const weekly = useMemo(() => lastNWeeksVolume(workouts, 6), [workouts]);
-  const maxWeekVolume = Math.max(1, ...weekly.map((w) => w.volume));
 
   const recent = workouts.slice(0, 3);
 
@@ -132,38 +132,7 @@ export default function HomePage() {
               Weekly volume
             </h2>
             {weekly.some((w) => w.volume > 0) ? (
-              <>
-                <div className="flex h-32 items-end gap-2">
-                  {weekly.map((w) => {
-                    const heightPct = (w.volume / maxWeekVolume) * 100;
-                    return (
-                      <div
-                        key={w.weekStart}
-                        className="flex flex-1 flex-col items-center gap-1"
-                      >
-                        {/* Numeric volume above the bar so the user can see
-                            the actual computed value, not just the bar shape.
-                            Helpful when bars look short and you want to know
-                            if it's a real low number or a render bug. */}
-                        <div className="text-[10px] tabular-nums text-zinc-400 h-4">
-                          {w.volume > 0 ? formatVolume(w.volume) : ""}
-                        </div>
-                        <div
-                          className="w-full rounded-t-md bg-emerald-500/80"
-                          style={{ height: `${Math.max(2, heightPct)}%` }}
-                          title={`${formatVolume(w.volume)}`}
-                        />
-                        <div className="text-[10px] text-zinc-500">
-                          {formatWeekLabel(w.weekStart)}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-                <div className="mt-2 text-center text-xs text-zinc-500">
-                  Last 6 weeks
-                </div>
-              </>
+              <WeeklyVolumeChart weekly={weekly} />
             ) : (
               <div className="py-6 text-center text-sm text-zinc-500">
                 Log a weight-reps workout to see your weekly volume trend.
@@ -312,5 +281,131 @@ export default function HomePage() {
         />
       )}
     </PageShell>
+  );
+}
+
+// Inline line chart for weekly volume. Hand-rolled SVG instead of pulling
+// recharts (~50KB) for a single tiny widget on the home page. The chart
+// renders:
+//   - 6 evenly-spaced x-axis points (one per week, oldest left)
+//   - A polyline connecting them, scaled so the tallest bar fills the
+//     available height with headroom for the value labels
+//   - A numeric label above each point (e.g. "37.5t")
+//   - Week labels under each tick
+// We use viewBox + 100% width so the chart scales fluidly with the screen.
+function WeeklyVolumeChart({ weekly }: { weekly: WeeklyVolume[] }) {
+  // Padding inside the SVG so labels and the line don't get clipped.
+  const W = 320;
+  const H = 132;
+  const PAD_LEFT = 28;
+  const PAD_RIGHT = 16;
+  const PAD_TOP = 18; // room for the numeric label above each point
+  const PAD_BOTTOM = 22; // room for the week label under each tick
+  const innerW = W - PAD_LEFT - PAD_RIGHT;
+  const innerH = H - PAD_TOP - PAD_BOTTOM;
+  const maxV = Math.max(1, ...weekly.map((w) => w.volume));
+  // Smallest visible volume gets ~6% of the chart height so a flat-but-real
+  // week doesn't look identical to a zero week.
+  const minVisiblePct = 0.06;
+
+  const points = weekly.map((w, i) => {
+    const x =
+      weekly.length === 1
+        ? PAD_LEFT + innerW / 2
+        : PAD_LEFT + (i / (weekly.length - 1)) * innerW;
+    const raw = w.volume / maxV;
+    const pct = Math.max(minVisiblePct, raw);
+    const y = PAD_TOP + (1 - pct) * innerH;
+    return { x, y, w };
+  });
+
+  const polyline = points
+    .map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`)
+    .join(" ");
+  const lastX = points[points.length - 1].x.toFixed(1);
+  const firstX = points[0].x.toFixed(1);
+  const baseY = (PAD_TOP + innerH).toFixed(1);
+  const areaPath = `M ${polyline.split(" ").join(" L ")} L ${lastX},${baseY} L ${firstX},${baseY} Z`;
+
+  return (
+    <div>
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        width="100%"
+        height={H}
+        preserveAspectRatio="none"
+        className="overflow-visible"
+      >
+        {/* Subtle horizontal gridline at the max */}
+        <line
+          x1={PAD_LEFT}
+          x2={PAD_LEFT + innerW}
+          y1={PAD_TOP}
+          y2={PAD_TOP}
+          stroke="currentColor"
+          strokeOpacity={0.15}
+          strokeDasharray="2 3"
+        />
+        {/* Filled area under the line for visual weight */}
+        <path d={areaPath} className="fill-emerald-500/15" />
+        {/* The line itself */}
+        <polyline
+          points={polyline}
+          className="fill-none stroke-emerald-400"
+          strokeWidth={2}
+          strokeLinejoin="round"
+          strokeLinecap="round"
+        />
+        {/* Points + numeric labels */}
+        {points.map((p) => (
+          <g key={p.w.weekStart}>
+            <circle
+              cx={p.x}
+              cy={p.y}
+              r={3}
+              className="fill-emerald-400 stroke-zinc-950"
+              strokeWidth={1.5}
+            />
+            <text
+              x={p.x}
+              y={p.y - 6}
+              textAnchor="middle"
+              className="fill-zinc-300"
+              fontSize={9}
+              style={{ fontVariantNumeric: "tabular-nums" }}
+            >
+              {formatVolume(p.w.volume)}
+            </text>
+          </g>
+        ))}
+        {/* Week labels under each tick */}
+        {points.map((p) => (
+          <text
+            key={`label-${p.w.weekStart}`}
+            x={p.x}
+            y={PAD_TOP + innerH + 14}
+            textAnchor="middle"
+            className="fill-zinc-500"
+            fontSize={9}
+          >
+            {formatWeekLabel(p.w.weekStart)}
+          </text>
+        ))}
+        {/* Y-axis max label in the top-left so the user has a scale anchor */}
+        <text
+          x={PAD_LEFT - 4}
+          y={PAD_TOP + 3}
+          textAnchor="end"
+          className="fill-zinc-500"
+          fontSize={9}
+          style={{ fontVariantNumeric: "tabular-nums" }}
+        >
+          {formatVolume(maxV)}
+        </text>
+      </svg>
+      <div className="mt-2 text-center text-xs text-zinc-500">
+        Last 6 weeks
+      </div>
+    </div>
   );
 }
