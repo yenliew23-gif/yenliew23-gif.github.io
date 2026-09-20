@@ -151,6 +151,53 @@ export function personalRecord(
   return best;
 }
 
+/**
+ * The single heaviest weight-reps set the user has ever logged for an
+ * exercise, plus the most recent weight-reps set from any workout. Used to
+ * pre-fill the workout editor with the user's all-time best (with the last
+ * workout's values shown as a footnote for comparison).
+ *
+ * Both return shapes use `null` (rather than empty objects) when there's
+ * no usable history — callers can detect that and fall back to template
+ * defaults.
+ */
+export function bestAndLastForExercise(
+  workouts: Workout[],
+  exerciseId: string
+): {
+  best: { weight: number; reps: number; date: string } | null;
+  last: { weight: number; reps: number; date: string } | null;
+} {
+  let best: { weight: number; reps: number; date: string } | null = null;
+  let last: { weight: number; reps: number; date: string } | null = null;
+  // workouts are typically already sorted newest-first by getWorkouts(), but
+  // we don't rely on that here — track explicitly by date.
+  for (const w of workouts) {
+    const ex = w.exercises.find((e) => e.exerciseId === exerciseId);
+    if (!ex) continue;
+    for (const s of ex.sets) {
+      if (!isWeightRepsSet(s)) continue;
+      const w0 = s.weight ?? 0;
+      const r0 = s.reps ?? 0;
+      const candidate = { weight: w0, reps: r0, date: w.date };
+      // Heaviest weight first; tie-break on more reps.
+      if (
+        !best ||
+        w0 > best.weight ||
+        (w0 === best.weight && r0 > best.reps)
+      ) {
+        best = candidate;
+      }
+      // Most recent workout wins (workouts processed in chronological order
+      // means the last assignment is the newest).
+      if (!last || w.date > last.date) {
+        last = candidate;
+      }
+    }
+  }
+  return { best, last };
+}
+
 // Returns last N weeks of weekly volume. Pads earlier weeks with zeros if missing.
 export function lastNWeeksVolume(workouts: Workout[], n: number): WeeklyVolume[] {
   const weekly = weeklyVolumes(workouts);

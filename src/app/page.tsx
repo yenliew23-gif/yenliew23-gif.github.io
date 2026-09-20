@@ -122,35 +122,46 @@ export default function HomePage() {
           </section>
         )}
 
-        {/* Weekly volume bars */}
-        {weekly.length > 0 && weekly.some((w) => w.volume > 0) && (
+        {/* Weekly volume bars — always render the section (with empty-state
+            inside if there's no data yet) so the user can see what's
+            expected. Previously hidden entirely, which made it look broken
+            when no workouts were in the last 6 weeks. */}
+        {weekly.length > 0 && (
           <section className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
             <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-400">
               Weekly volume
             </h2>
-            <div className="flex h-32 items-end gap-2">
-              {weekly.map((w) => {
-                const heightPct = (w.volume / maxWeekVolume) * 100;
-                return (
-                  <div
-                    key={w.weekStart}
-                    className="flex flex-1 flex-col items-center gap-1"
-                  >
-                    <div
-                      className="w-full rounded-t-md bg-emerald-500/80"
-                      style={{ height: `${Math.max(2, heightPct)}%` }}
-                      title={`${formatVolume(w.volume)}`}
-                    />
-                    <div className="text-[10px] text-zinc-500">
-                      {formatWeekLabel(w.weekStart)}
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            <div className="mt-2 text-center text-xs text-zinc-500">
-              Last 6 weeks
-            </div>
+            {weekly.some((w) => w.volume > 0) ? (
+              <>
+                <div className="flex h-32 items-end gap-2">
+                  {weekly.map((w) => {
+                    const heightPct = (w.volume / maxWeekVolume) * 100;
+                    return (
+                      <div
+                        key={w.weekStart}
+                        className="flex flex-1 flex-col items-center gap-1"
+                      >
+                        <div
+                          className="w-full rounded-t-md bg-emerald-500/80"
+                          style={{ height: `${Math.max(2, heightPct)}%` }}
+                          title={`${formatVolume(w.volume)}`}
+                        />
+                        <div className="text-[10px] text-zinc-500">
+                          {formatWeekLabel(w.weekStart)}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <div className="mt-2 text-center text-xs text-zinc-500">
+                  Last 6 weeks
+                </div>
+              </>
+            ) : (
+              <div className="py-6 text-center text-sm text-zinc-500">
+                Log a weight-reps workout to see your weekly volume trend.
+              </div>
+            )}
           </section>
         )}
 

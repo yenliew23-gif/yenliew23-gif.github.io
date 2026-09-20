@@ -13,6 +13,7 @@ import {
   X,
   StickyNote,
   Check,
+  Info,
 } from "lucide-react";
 import clsx from "clsx";
 import type {
@@ -24,8 +25,9 @@ import type {
   WorkoutExercise,
 } from "@/lib/types";
 import { addWorkout, deleteWorkout, getWorkout, updateWorkout, uid } from "@/lib/storage";
-import { useExercises } from "@/lib/hooks";
+import { useExercises, useWorkouts } from "@/lib/hooks";
 import { formatDuration, formatSetSummary, formatWeight, SET_TYPE_SHORT, todayLocalISO } from "@/lib/format";
+import { bestAndLastForExercise } from "@/lib/stats";
 
 const SET_TYPES: SetType[] = [
   "weight-reps",
@@ -88,16 +90,67 @@ function defaultSetTypeForExercise(ex?: Exercise): SetType {
   return "weight-reps";
 }
 
-function emptyExerciseBlock(ex: Exercise, prev?: WorkoutExercise): WorkoutExercise {
+/**
+ * Build a brand-new block for `ex`. The pre-fill rule:
+ *   - If we have a "previous" block (e.g. user just deleted and re-added
+ *     the same exercise), use its sets verbatim.
+ *   - Otherwise, look at the user's all-time best for this exercise. If we
+ *     have one, pre-fill a single set with that weight × reps and the
+ *     default type — same rule as the template pre-fill, just one set since
+ *     the user is starting from scratch.
+ *   - Otherwise, fall back to one empty set of the default type.
+ */
+function emptyExerciseBlock(
+  ex: Exercise,
+  workouts: Workout[],
+  prev?: WorkoutExercise
+): { block: WorkoutExercise; footnote?: string } {
   const defaultType = defaultSetTypeForExercise(ex);
+
+  if (prev?.sets && prev.sets.length > 0) {
+    return {
+      block: {
+        id: uid(),
+        exerciseId: ex.id,
+        order: 0,
+        sets: prev.sets.map((s) => ({ ...s, id: uid() })),
+      },
+    };
+  }
+
+  const { best, last } = bestAndLastForExercise(workouts, ex.id);
+  if (best) {
+    let footnote: string | undefined;
+    if (last && last.date === best.date && last.reps === best.reps) {
+      footnote = `Best ever and last time: ${formatWeight(best.weight)} × ${best.reps}`;
+    } else if (last) {
+      footnote = `Last time: ${formatWeight(last.weight)} × ${last.reps} · best ever: ${formatWeight(best.weight)} × ${best.reps}`;
+    }
+    return {
+      block: {
+        id: uid(),
+        exerciseId: ex.id,
+        order: 0,
+        sets: [
+          {
+            id: uid(),
+            type: defaultType,
+            weight: best.weight,
+            reps: best.reps,
+          },
+        ],
+      },
+      footnote,
+    };
+  }
+
   return {
-    id: uid(),
-    exerciseId: ex.id,
-    order: 0,
-    sets:
-      prev?.sets && prev.sets.length > 0
-        ? prev.sets.map((s) => ({ ...s, id: uid() }))
-        : [emptySet(undefined, defaultType)],
+    block: {
+      id: uid(),
+      exerciseId: ex.id,
+      order: 0,
+      sets: [emptySet(undefined, defaultType)],
+    },
   };
 }
 
@@ -105,18 +158,31 @@ export function WorkoutEditor({
   workoutId,
   mode = "create",
   initialBlocks,
+  initialFootnotes,
   initialName,
 }: {
   workoutId?: string;
   mode?: "create" | "edit";
   initialBlocks?: WorkoutExercise[];
+  /**
+   * Optional transient UI hint shown beneath each block. Keyed by block ID.
+   * Not persisted — used by the template pre-fill to show "Last time: X×Y"
+   * alongside the all-time-best pre-fill, so the user has immediate context
+   * to decide whether to bump.
+   */
+  initialFootnotes?: Record<string, string>;
   initialName?: string;
 }) {
   const router = useRouter();
   const exercises = useExercises();
+  const workouts = useWorkouts();
   const [date, setDate] = useState<string>(todayISO());
   const [name, setName] = useState<string>(initialName ?? "");
   const [bodyweight, setBodyweight] = useState<string>("");
+  // Footnotes attached to blocks added in-session (e.g. via the picker).
+  // Keyed by block ID. Merged with `initialFootnotes` (passed in from the
+  // template pre-fill) for rendering.
+  const [runtimeFootnotes, setRuntimeFootnotes] = useState<Record<string, string>>({});
   const [blocks, setBlocks] = useState<WorkoutExercise[]>(
     initialBlocks && initialBlocks.length > 0 ? initialBlocks : []
   );
@@ -155,10 +221,11 @@ export function WorkoutEditor({
   const usedExerciseIds = blocks.map((b) => b.exerciseId);
 
   function addExerciseBlock(ex: Exercise) {
-    setBlocks((cur) => [
-      ...cur,
-      { ...emptyExerciseBlock(ex), order: cur.length },
-    ]);
+    const { block, footnote } = emptyExerciseBlock(ex, workouts);
+    setBlocks((cur) => [...cur, { ...block, order: cur.length }]);
+    if (footnote) {
+      setRuntimeFootnotes((prev) => ({ ...prev, [block.id]: footnote }));
+    }
     setPickerOpen(false);
   }
 
@@ -438,6 +505,21 @@ export function WorkoutEditor({
                 <Copy className="h-4 w-4" />
               </button>
             </div>
+
+            {/* Pre-fill hint (only on first mount) — e.g. "Last time: 80kg × 8".
+                Shows beneath the sets so the user can see context for the
+                all-time-best values that were pre-filled. Merges the
+                template-provided footnotes (initialFootnotes) with any
+                added in-session when the user picked a new exercise from
+                the picker (runtimeFootnotes). */}
+            {(initialFootnotes?.[block.id] ?? runtimeFootnotes[block.id]) && (
+              <div className="mt-2 flex items-start gap-1.5 text-[11px] text-zinc-500">
+                <Info className="mt-0.5 h-3 w-3 shrink-0" />
+                <span>
+                  {initialFootnotes?.[block.id] ?? runtimeFootnotes[block.id]}
+                </span>
+              </div>
+            )}
 
             {/* Per-exercise description / note */}
             <ExerciseNoteEditor

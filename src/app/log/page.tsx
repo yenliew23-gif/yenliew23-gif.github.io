@@ -7,6 +7,8 @@ import { PageShell, PageHeader } from "@/components/PageHeader";
 import { WorkoutEditor } from "@/components/WorkoutEditor";
 import { useTemplates, useWorkouts } from "@/lib/hooks";
 import { getTemplate, uid } from "@/lib/storage";
+import { bestAndLastForExercise } from "@/lib/stats";
+import { formatWeight } from "@/lib/format";
 import type {
   SetEntry,
   Workout,
@@ -94,54 +96,76 @@ export default function LogPage() {
   }, []);
 
   // Convert a template into pre-filled WorkoutExercise blocks for the editor.
-  // For each exercise, we look up the most recent workout that contained it
-  // and pre-fill from THERE (progressive overload), falling back to the
-  // template's hard-coded defaults if the user has never logged this exercise
-  // before, or if the most recent occurrence had no usable values.
+  // For each exercise:
+  //   - Pre-fill the sets with the user's all-time best weight × reps for
+  //     weight-reps sets (the heaviest single set they've ever logged).
+  //   - Add a "last time" footnote showing what they did most recently, so
+  //     they can compare and bump accordingly.
+  //   - Fall back to template defaults if there's no usable history.
   //
-  // We read workouts synchronously here (not via useWorkouts) so the editor
-  // gets the right initialBlocks on its very first render. useWorkouts() is
-  // used as a memo dependency so we recompute if workouts change after mount
-  // (e.g. after a cloud sync delivers new data) — but the editor's `key`
-  // forces a fresh mount when the template changes, so users always see the
-  // latest last-workout values for whatever template they pick.
-  const initialBlocks: Omit<WorkoutExercise, never>[] = useMemo(() => {
-    if (!appliedTemplate) return [];
+  // The footnote is returned as a parallel map keyed by the block ID so the
+  // editor can render it without us needing to mutate the WorkoutExercise
+  // type. The editor drops the footnote before saving.
+  const { initialBlocks, initialFootnotes } = useMemo(() => {
+    if (!appliedTemplate)
+      return {
+        initialBlocks: [] as Omit<WorkoutExercise, never>[],
+        initialFootnotes: {} as Record<string, string>,
+      };
     // Read directly from localStorage so this is correct on first render
     // (useWorkouts() would return [] until its effect runs, which would
     // make us pre-fill template defaults even when last-workout data exists).
     const allWorkouts =
       typeof window !== "undefined" ? workoutsFromStorage() : workouts;
-    return appliedTemplate.exercises.map((te, idx) => {
-      const lastSets = findLastSetsForExercise(allWorkouts, te.exerciseId);
-      const lastSetsAreUsable =
-        lastSets && lastSets.some(hasAnyValues);
+
+    const blocks: Omit<WorkoutExercise, never>[] = [];
+    const footnotes: Record<string, string> = {};
+
+    appliedTemplate.exercises.forEach((te, idx) => {
+      const { best, last } = bestAndLastForExercise(allWorkouts, te.exerciseId);
 
       let sets: SetEntry[];
-      if (lastSetsAreUsable) {
-        // Progressive overload: carry over the most recent workout's sets
-        // (type, weight, reps, duration, distance) — the user just bumps
-        // the numbers up. This overrides the template's defaultSets count.
-        sets = lastSets!;
+      const blockId = uid();
+
+      if (best) {
+        // Progressive overload: replicate the user's heaviest-ever set as
+        // the template's defaultSets count. The user can edit per-set
+        // (e.g. drop last set down to a back-off weight) before saving.
+        sets = Array.from({ length: te.defaultSets }).map(() => ({
+          id: uid(),
+          type: "weight-reps" as const,
+          weight: best.weight,
+          reps: best.reps,
+        }));
+        // Footnote: show the most recent workout's top set so the user
+        // has an immediate comparison. If the best IS the last, say so.
+        if (last && last.date === best.date && last.reps === best.reps) {
+          footnotes[blockId] =
+            `Best ever and last time: ${formatWeight(best.weight)} × ${best.reps}`;
+        } else if (last) {
+          footnotes[blockId] =
+            `Last time: ${formatWeight(last.weight)} × ${last.reps} · best ever: ${formatWeight(best.weight)} × ${best.reps}`;
+        }
       } else {
-        // First time for this exercise (or last time had no values) — fall
-        // back to the template defaults. We re-emit the same shape `te.defaultSets`
-        // times so the user gets the same starting point as before this change.
+        // First time for this exercise — fall back to the template defaults.
         sets = Array.from({ length: te.defaultSets }).map(() => ({
           id: uid(),
           weight: te.defaultWeight ?? 0,
           reps: te.defaultReps,
         }));
       }
-      return {
-        id: uid(),
+
+      blocks.push({
+        id: blockId,
         exerciseId: te.exerciseId,
         order: idx,
         sets,
-      };
+      });
     });
-    // We depend on `workouts` from useWorkouts so that when workouts
-    // arrive from cloud sync after mount, the memo invalidates. The editor's
+
+    return { initialBlocks: blocks, initialFootnotes: footnotes };
+    // We depend on `workouts` from useWorkouts so that when workouts arrive
+    // from cloud sync after mount, the memo invalidates. The editor's
     // `key={appliedTemplate?.id}` forces a fresh mount on template change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [appliedTemplate, workouts]);
@@ -214,6 +238,7 @@ export default function LogPage() {
             mode="create"
             key={appliedTemplate?.id ?? "blank"}
             initialBlocks={initialBlocks}
+            initialFootnotes={initialFootnotes}
             initialName={appliedTemplate?.name ?? ""}
           />
         )}
