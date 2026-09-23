@@ -26,7 +26,7 @@ import type {
 } from "@/lib/types";
 import { addWorkout, deleteWorkout, getWorkout, updateWorkout, uid } from "@/lib/storage";
 import { useExercises, useWorkouts } from "@/lib/hooks";
-import { formatDuration, formatSetSummary, formatWeight, SET_TYPE_SHORT, todayLocalISO } from "@/lib/format";
+import { formatDate, formatDuration, formatSetSummary, formatWeight, SET_TYPE_SHORT, todayLocalISO } from "@/lib/format";
 import { bestAndLastForExercise } from "@/lib/stats";
 
 const SET_TYPES: SetType[] = [
@@ -118,13 +118,26 @@ function emptyExerciseBlock(
     };
   }
 
-  const { best, last } = bestAndLastForExercise(workouts, ex.id);
+  const { best, lastSets, lastDate } = bestAndLastForExercise(workouts, ex.id);
   if (best) {
+    // Build the footnote. Format the full last-workout set list so the user
+    // can see the entire progression from their previous session (e.g. all
+    // three working sets at 80×8 / 80×8 / 70×10) rather than just the top
+    // single set.
     let footnote: string | undefined;
-    if (last && last.date === best.date && last.reps === best.reps) {
+    const lastSummary = lastSets
+      .map((s) => `${formatWeight(s.weight)} × ${s.reps}`)
+      .join(", ");
+    const lastIsBest =
+      lastSets.length === 1 &&
+      lastSets[0].weight === best.weight &&
+      lastSets[0].reps === best.reps;
+    if (lastIsBest) {
       footnote = `Best ever and last time: ${formatWeight(best.weight)} × ${best.reps}`;
-    } else if (last) {
-      footnote = `Last time: ${formatWeight(last.weight)} × ${last.reps} · best ever: ${formatWeight(best.weight)} × ${best.reps}`;
+    } else if (lastSummary) {
+      const bestPart = `best ever: ${formatWeight(best.weight)} × ${best.reps}`;
+      const datePart = lastDate ? ` (${formatDate(lastDate)})` : "";
+      footnote = `Last time${datePart}: ${lastSummary} · ${bestPart}`;
     }
     return {
       block: {

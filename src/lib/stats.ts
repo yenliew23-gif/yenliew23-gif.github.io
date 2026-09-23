@@ -152,31 +152,41 @@ export function personalRecord(
 }
 
 /**
- * The single heaviest weight-reps set the user has ever logged for an
- * exercise, plus the most recent weight-reps set from any workout. Used to
- * pre-fill the workout editor with the user's all-time best (with the last
- * workout's values shown as a footnote for comparison).
+ * For an exercise: the heaviest weight-reps set the user has ever logged
+ * (single set), plus the FULL sequence of weight-reps sets from the most
+ * recent workout that contained the exercise. Used by the workout editor
+ * pre-fill to show the user's all-time best with the last workout's sets as
+ * a footnote for comparison.
  *
- * Both return shapes use `null` (rather than empty objects) when there's
- * no usable history — callers can detect that and fall back to template
- * defaults.
+ * `lastSets` is a list (not a single set) so the user can see the full
+ * progression from their previous session — e.g. "60kg×10, 50kg×8, 50kg×8"
+ * instead of just "60kg×10".
+ *
+ * Returns `null` / `[]` for each field when there's no usable history —
+ * callers can detect that and fall back to template defaults.
  */
 export function bestAndLastForExercise(
   workouts: Workout[],
   exerciseId: string
 ): {
   best: { weight: number; reps: number; date: string } | null;
-  last: { weight: number; reps: number; date: string } | null;
+  lastSets: { weight: number; reps: number; date: string }[];
+  lastDate: string | null;
 } {
   let best: { weight: number; reps: number; date: string } | null = null;
-  let last: { weight: number; reps: number; date: string } | null = null;
-  // workouts are typically already sorted newest-first by getWorkouts(), but
-  // we don't rely on that here — track explicitly by date.
+  let lastSets: { weight: number; reps: number; date: string }[] = [];
+  let lastDate: string | null = null;
+
+  // We want the most recent workout (by date) that contained this exercise.
+  // Iterate and track the latest date seen so far; once we find a later
+  // date, replace lastSets with that workout's sets.
   for (const w of workouts) {
     const ex = w.exercises.find((e) => e.exerciseId === exerciseId);
     if (!ex) continue;
-    for (const s of ex.sets) {
-      if (!isWeightRepsSet(s)) continue;
+    const wrSets = ex.sets.filter(isWeightRepsSet);
+    if (wrSets.length === 0) continue;
+
+    for (const s of wrSets) {
       const w0 = s.weight ?? 0;
       const r0 = s.reps ?? 0;
       const candidate = { weight: w0, reps: r0, date: w.date };
@@ -188,14 +198,22 @@ export function bestAndLastForExercise(
       ) {
         best = candidate;
       }
-      // Most recent workout wins (workouts processed in chronological order
-      // means the last assignment is the newest).
-      if (!last || w.date > last.date) {
-        last = candidate;
-      }
+    }
+
+    // Track the most recent workout date. We replace lastSets only when we
+    // find a strictly later date — this preserves the chronological order
+    // of the original sets within that workout.
+    if (lastDate === null || w.date > lastDate) {
+      lastDate = w.date;
+      lastSets = wrSets.map((s) => ({
+        weight: s.weight ?? 0,
+        reps: s.reps ?? 0,
+        date: w.date,
+      }));
     }
   }
-  return { best, last };
+
+  return { best, lastSets, lastDate };
 }
 
 // Returns last N weeks of weekly volume. Pads earlier weeks with zeros if missing.

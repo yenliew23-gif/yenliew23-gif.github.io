@@ -8,36 +8,13 @@ import { WorkoutEditor } from "@/components/WorkoutEditor";
 import { useTemplates, useWorkouts } from "@/lib/hooks";
 import { getTemplate, uid } from "@/lib/storage";
 import { bestAndLastForExercise } from "@/lib/stats";
-import { formatWeight } from "@/lib/format";
+import { formatDate, formatWeight } from "@/lib/format";
 import type {
   SetEntry,
   Workout,
   WorkoutExercise,
   WorkoutTemplate,
 } from "@/lib/types";
-
-/**
- * Find the most recent workout (across ALL templates / non-template workouts)
- * that contains `exerciseId`, and return the sets from that block.
- *
- * The caller uses these sets as the pre-fill for a new workout so the user
- * can pick up where they left off and just bump the weight/reps for
- * progressive overload — instead of staring at empty sets.
- */
-function findLastSetsForExercise(
-  workouts: Workout[],
-  exerciseId: string
-): SetEntry[] | null {
-  // getWorkouts() already sorts newest-first, so the first match wins.
-  for (const w of workouts) {
-    const block = w.exercises.find((b) => b.exerciseId === exerciseId);
-    if (block && block.sets && block.sets.length > 0) {
-      // Deep-copy and assign fresh ids so the editor's set-state stays clean.
-      return block.sets.map((s) => ({ ...s, id: uid() }));
-    }
-  }
-  return null;
-}
 
 /**
  * Read workouts directly from localStorage (not via the useWorkouts hook).
@@ -60,15 +37,6 @@ function workoutsFromStorage(): Workout[] {
   } catch {
     return [];
   }
-}
-
-function hasAnyValues(s: SetEntry): boolean {
-  return (
-    (s.weight ?? 0) > 0 ||
-    (s.reps ?? 0) > 0 ||
-    (s.duration ?? 0) > 0 ||
-    (s.distance ?? 0) > 0
-  );
 }
 
 export default function LogPage() {
@@ -122,7 +90,10 @@ export default function LogPage() {
     const footnotes: Record<string, string> = {};
 
     appliedTemplate.exercises.forEach((te, idx) => {
-      const { best, last } = bestAndLastForExercise(allWorkouts, te.exerciseId);
+      const { best, lastSets, lastDate } = bestAndLastForExercise(
+        allWorkouts,
+        te.exerciseId
+      );
 
       let sets: SetEntry[];
       const blockId = uid();
@@ -137,14 +108,24 @@ export default function LogPage() {
           weight: best.weight,
           reps: best.reps,
         }));
-        // Footnote: show the most recent workout's top set so the user
-        // has an immediate comparison. If the best IS the last, say so.
-        if (last && last.date === best.date && last.reps === best.reps) {
+        // Footnote: show the full sequence of weight-reps sets from the
+        // most recent workout (not just the top set), so the user has an
+        // immediate comparison of their entire previous session.
+        const lastSummary = lastSets
+          .map((s) => `${formatWeight(s.weight)} × ${s.reps}`)
+          .join(", ");
+        const lastIsBest =
+          lastSets.length === 1 &&
+          lastSets[0].weight === best.weight &&
+          lastSets[0].reps === best.reps;
+        if (lastIsBest) {
           footnotes[blockId] =
             `Best ever and last time: ${formatWeight(best.weight)} × ${best.reps}`;
-        } else if (last) {
+        } else if (lastSummary) {
+          const datePart = lastDate ? ` (${formatDate(lastDate)})` : "";
+          const bestPart = `best ever: ${formatWeight(best.weight)} × ${best.reps}`;
           footnotes[blockId] =
-            `Last time: ${formatWeight(last.weight)} × ${last.reps} · best ever: ${formatWeight(best.weight)} × ${best.reps}`;
+            `Last time${datePart}: ${lastSummary} · ${bestPart}`;
         }
       } else {
         // First time for this exercise — fall back to the template defaults.
