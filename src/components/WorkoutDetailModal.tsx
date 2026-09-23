@@ -23,7 +23,6 @@ import {
   totalVolume,
 } from "@/lib/stats";
 import {
-  formatDate,
   formatDateLong,
   formatSetSummary,
   formatVolume,
@@ -175,15 +174,40 @@ export function WorkoutDetailModal({
                 ? topSetForExercise(previousWorkout, block.exerciseId)
                 : undefined;
               const currentTopSet = topSetForSets(block.sets);
-              const trend: Trend = compareTopSets(currentTopSet, previousTopSet);
               // Full sequence of weight-reps sets from the previous workout
-              // containing this exercise, so the user can see the entire
-              // previous session (not just the top set) for comparison.
+              // containing this exercise, so the comparison line below can
+              // show the entire previous session (not just the top set).
               const previousSets = previousWorkout
                 ? previousWorkout.exercises
                     .find((b) => b.exerciseId === block.exerciseId)
                     ?.sets.filter(isWeightRepsSet) ?? []
                 : [];
+              // Total weight-reps volume for this exercise in the current
+              // workout — used by the comparison line below to decide
+              // improved/regressed/same. Heavier volume OR heavier top set
+              // OR more reps → improved; the opposite → regressed.
+              const currentVolume = block.sets
+                .filter(isWeightRepsSet)
+                .reduce((s, set) => s + (set.weight ?? 0) * (set.reps ?? 0), 0);
+              const previousVolume = previousSets.reduce(
+                (s, set) => s + (set.weight ?? 0) * (set.reps ?? 0),
+                0
+              );
+              const currentReps = block.sets
+                .filter(isWeightRepsSet)
+                .reduce((s, set) => s + (set.reps ?? 0), 0);
+              const previousReps = previousSets.reduce(
+                (s, set) => s + (set.reps ?? 0),
+                0
+              );
+              const blockTrend: Trend = computeBlockTrend({
+                currentMax: currentTopSet?.weight ?? 0,
+                previousMax: previousTopSet?.weight ?? 0,
+                currentVolume,
+                previousVolume,
+                currentReps,
+                previousReps,
+              });
               return (
                 <section
                   key={block.id}
@@ -198,8 +222,8 @@ export function WorkoutDetailModal({
                         {ex?.muscleGroup ?? ""}
                       </div>
                     </div>
-                    {currentTopSet && previousTopSet && trend !== "none" && (
-                      <TrendPill trend={trend} compact />
+                    {currentTopSet && previousTopSet && blockTrend !== "none" && (
+                      <TrendPill trend={blockTrend} compact />
                     )}
                   </div>
 
@@ -220,26 +244,6 @@ export function WorkoutDetailModal({
                   {block.note && (
                     <div className="mt-2 whitespace-pre-wrap rounded-lg bg-zinc-950/40 px-3 py-2 text-xs text-zinc-300">
                       {block.note}
-                    </div>
-                  )}
-
-                  {/* "Last time" comparison: full sequence of weight-reps
-                      sets from the previous workout that contained this
-                      exercise (not just the top set). Gives the user
-                      complete context for the trend pill / e1RM line. */}
-                  {previousSets.length > 0 && previousWorkout && (
-                    <div className="mt-2 rounded-lg border border-zinc-800/60 bg-zinc-950/30 px-3 py-2 text-xs text-zinc-400">
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-                        Last time ({formatDate(previousWorkout.date)})
-                      </span>
-                      <div className="mt-0.5 tabular-nums">
-                        {previousSets
-                          .map(
-                            (s) =>
-                              `${formatWeight(s.weight ?? 0)} × ${s.reps ?? 0}`
-                          )
-                          .join(", ")}
-                      </div>
                     </div>
                   )}
 
@@ -277,11 +281,11 @@ export function WorkoutDetailModal({
                     })}
                   </div>
 
-                  {previousTopSet && currentTopSet && (
+                  {previousSets.length > 0 && currentTopSet && (
                     <LastTimeLine
                       current={currentTopSet}
-                      previous={previousTopSet}
-                      trend={trend}
+                      previousSets={previousSets}
+                      trend={blockTrend}
                     />
                   )}
                 </section>
@@ -412,17 +416,23 @@ function TrendPill({ trend, compact = false }: { trend: Trend; compact?: boolean
 
 function LastTimeLine({
   current,
-  previous,
+  previousSets,
   trend,
 }: {
   current: SetEntry;
-  previous: SetEntry;
+  /** All weight-reps sets from the previous workout, in order. We render
+   *  the full list (e.g. "20kg × 8, 20kg × 8, 20kg × 6") so the user can
+   *  see the entire previous session, not just the top single set. */
+  previousSets: SetEntry[];
   trend: Trend;
 }) {
   const c = trendClasses(trend);
   const flat = trend === "flat" || trend === "none";
+  const summary = previousSets
+    .map((s) => `${formatWeight(s.weight ?? 0)} × ${s.reps ?? 0}`)
+    .join(", ");
   return (
-    <div className="mt-3 flex items-center gap-1.5 text-xs">
+    <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
       <span className={c.icon}>{trendIcon(trend, "h-3.5 w-3.5")}</span>
       <span className="text-zinc-400">Last time:</span>{" "}
       <span
@@ -434,7 +444,7 @@ function LastTimeLine({
           flat && "decoration-1"
         )}
       >
-        {formatSetSummary(previous)}
+        {summary}
       </span>
       {trend !== "none" && !flat && (
         <span className={clsx("ml-1 text-[10px] uppercase tracking-wide", c.text)}>
@@ -443,6 +453,58 @@ function LastTimeLine({
       )}
     </div>
   );
+}
+
+/**
+ * Compare an exercise block (current) against its previous occurrence across
+ * three signals: heaviest single set, total weight-reps volume, total reps.
+ *
+ *   - "up"   : any of the three is clearly higher (with a small dead-zone
+ *              to avoid 1–2kg noise)
+ *   - "down" : any is clearly lower
+ *   - "flat" : none moved beyond the dead-zone
+ *   - "none" : no prior workout to compare against
+ *
+ * We use OR (not weighted) so that, for example, dropping one rep at the
+ * same weight doesn't hide a heavier top set, and adding a set at a lower
+ * weight doesn't hide a rep count increase.
+ */
+function computeBlockTrend(opts: {
+  currentMax: number;
+  previousMax: number;
+  currentVolume: number;
+  previousVolume: number;
+  currentReps: number;
+  previousReps: number;
+}): Trend {
+  const { currentMax, previousMax, currentVolume, previousVolume, currentReps, previousReps } = opts;
+  // No prior → can't tell.
+  if (
+    previousMax === 0 &&
+    previousVolume === 0 &&
+    previousReps === 0
+  ) {
+    return "none";
+  }
+  const dMax = currentMax - previousMax;
+  const dVol = currentVolume - previousVolume;
+  const dReps = currentReps - previousReps;
+  // Dead-zone: ignore sub-0.5kg weight jitter and ±1 rep noise so we don't
+  // flag a session as up/down from meaningless drift.
+  const MAX_DEAD = 0.5;
+  const REP_DEAD = 1;
+  const isUp =
+    dMax > MAX_DEAD || dVol > MAX_DEAD || dReps > REP_DEAD;
+  const isDown =
+    dMax < -MAX_DEAD || dVol < -MAX_DEAD || dReps < -REP_DEAD;
+  if (isUp && !isDown) return "up";
+  if (isDown && !isUp) return "down";
+  if (isUp && isDown) {
+    // Mixed signals (e.g. heavier top set but fewer total reps from a shorter
+    // session). Prefer "flat" unless the volume delta is unambiguous.
+    return Math.abs(dVol) > MAX_DEAD ? (dVol > 0 ? "up" : "down") : "flat";
+  }
+  return "flat";
 }
 
 // ----- Helpers used by the per-exercise "last time" comparison -----
