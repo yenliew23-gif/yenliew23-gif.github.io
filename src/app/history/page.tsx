@@ -3,11 +3,20 @@
 import { useMemo, useState } from "react";
 import { Search } from "lucide-react";
 import { PageShell, PageHeader } from "@/components/PageHeader";
-import { WorkoutCard, type WorkoutTrend } from "@/components/WorkoutCard";
+import {
+  WorkoutCard,
+  type WorkoutDelta,
+  type WorkoutTrend,
+} from "@/components/WorkoutCard";
 import { WorkoutDetailModal } from "@/components/WorkoutDetailModal";
 import { useExercises, useWorkouts } from "@/lib/hooks";
 import { formatWeekLabel } from "@/lib/format";
-import { totalVolume, weekStartOf } from "@/lib/stats";
+import {
+  isWeightRepsSet,
+  totalReps,
+  totalVolume,
+  weekStartOf,
+} from "@/lib/stats";
 import type { Workout } from "@/lib/types";
 
 export default function HistoryPage() {
@@ -32,6 +41,9 @@ export default function HistoryPage() {
   // (by time). We compute this from the unfiltered, un-grouped list so the
   // comparison stays stable even when the user is filtering by name.
   const trendById = useMemo(() => buildTrendMap(workouts), [workouts]);
+  // Numeric deltas (volume / max weight / reps) vs the previous workout, so
+  // each card can show concrete "+5kg, +12 reps" instead of just a trend icon.
+  const deltaById = useMemo(() => buildDeltaMap(workouts), [workouts]);
 
   const grouped = useMemo(() => {
     const map = new Map<string, typeof filtered>();
@@ -84,6 +96,7 @@ export default function HistoryPage() {
                     workout={w}
                     exercises={exercises}
                     trend={trendById.get(w.id)}
+                    delta={deltaById.get(w.id)?.delta}
                   />
                 </button>
               ))}
@@ -130,4 +143,43 @@ function buildTrendMap(workouts: Workout[]): Map<string, WorkoutTrend> {
     }
   }
   return map;
+}
+
+/**
+ * Compute per-workout delta numbers vs the previous workout in time, for
+ * inline display on each History card: volume (kg), max weight (kg), and
+ * total reps. Weight deltas only count weight-reps sets; reps deltas count
+ * any set that tracks reps (weight-reps + reps-only).
+ */
+function buildDeltaMap(
+  workouts: Workout[]
+): Map<string, { trend: WorkoutTrend; delta: WorkoutDelta }> {
+  const map = new Map<string, { trend: WorkoutTrend; delta: WorkoutDelta }>();
+  for (let i = 0; i < workouts.length; i++) {
+    const cur = workouts[i];
+    const prev = workouts[i + 1];
+    if (!prev) continue;
+    const dVolume = totalVolume(cur) - totalVolume(prev);
+    const dReps = totalReps(cur) - totalReps(prev);
+    const dMaxWeight =
+      maxWeight(cur) - maxWeight(prev);
+    const trend: WorkoutTrend =
+      Math.abs(dVolume) < 0.5 ? "flat" : dVolume > 0 ? "up" : "down";
+    map.set(cur.id, {
+      trend,
+      delta: { dVolume, dMaxWeight, dReps },
+    });
+  }
+  return map;
+}
+
+/** Heaviest weight (kg) across all weight-reps sets in a workout, or 0. */
+function maxWeight(workout: Workout): number {
+  let m = 0;
+  for (const block of workout.exercises) {
+    for (const s of block.sets) {
+      if (isWeightRepsSet(s)) m = Math.max(m, s.weight ?? 0);
+    }
+  }
+  return m;
 }

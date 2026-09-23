@@ -23,9 +23,11 @@ import {
   totalVolume,
 } from "@/lib/stats";
 import {
+  formatDate,
   formatDateLong,
   formatSetSummary,
   formatVolume,
+  formatWeight,
   pluralize,
 } from "@/lib/format";
 import type { SetEntry, SetType, Workout } from "@/lib/types";
@@ -174,6 +176,14 @@ export function WorkoutDetailModal({
                 : undefined;
               const currentTopSet = topSetForSets(block.sets);
               const trend: Trend = compareTopSets(currentTopSet, previousTopSet);
+              // Full sequence of weight-reps sets from the previous workout
+              // containing this exercise, so the user can see the entire
+              // previous session (not just the top set) for comparison.
+              const previousSets = previousWorkout
+                ? previousWorkout.exercises
+                    .find((b) => b.exerciseId === block.exerciseId)
+                    ?.sets.filter(isWeightRepsSet) ?? []
+                : [];
               return (
                 <section
                   key={block.id}
@@ -210,6 +220,26 @@ export function WorkoutDetailModal({
                   {block.note && (
                     <div className="mt-2 whitespace-pre-wrap rounded-lg bg-zinc-950/40 px-3 py-2 text-xs text-zinc-300">
                       {block.note}
+                    </div>
+                  )}
+
+                  {/* "Last time" comparison: full sequence of weight-reps
+                      sets from the previous workout that contained this
+                      exercise (not just the top set). Gives the user
+                      complete context for the trend pill / e1RM line. */}
+                  {previousSets.length > 0 && previousWorkout && (
+                    <div className="mt-2 rounded-lg border border-zinc-800/60 bg-zinc-950/30 px-3 py-2 text-xs text-zinc-400">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                        Last time ({formatDate(previousWorkout.date)})
+                      </span>
+                      <div className="mt-0.5 tabular-nums">
+                        {previousSets
+                          .map(
+                            (s) =>
+                              `${formatWeight(s.weight ?? 0)} × ${s.reps ?? 0}`
+                          )
+                          .join(", ")}
+                      </div>
                     </div>
                   )}
 

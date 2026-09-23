@@ -8,10 +8,27 @@ import { formatRelativeDay, formatVolume, pluralize } from "@/lib/format";
 
 export type WorkoutTrend = "up" | "down" | "flat";
 
+/**
+ * Numeric deltas vs the previous workout (by time), shown inline on the
+ * card so the user can see what changed — not just the up/down/flat icon.
+ *
+ *   volume  — total weight × reps (kg); positive = heavier session
+ *   maxWeight — heaviest single set (kg); positive = peak lift grew
+ *   reps    — total reps across weight-reps + reps-only sets
+ *
+ * `undefined` for the very first workout ever logged.
+ */
+export interface WorkoutDelta {
+  dVolume: number;
+  dMaxWeight: number;
+  dReps: number;
+}
+
 export function WorkoutCard({
   workout,
   exercises,
   trend,
+  delta,
 }: {
   workout: Workout;
   exercises: Exercise[];
@@ -20,6 +37,8 @@ export function WorkoutCard({
    * (in time). `undefined` for the very first workout logged.
    */
   trend?: WorkoutTrend;
+  /** Numeric deltas to render next to the totals. */
+  delta?: WorkoutDelta;
 }) {
   const names = workout.exercises
     .map((e) => exerciseById(exercises, e.exerciseId)?.name)
@@ -68,7 +87,65 @@ export function WorkoutCard({
           {formatVolume(volume)}
         </span>
       </div>
+      {/* Inline delta vs previous workout. Hidden for the very first workout
+          (no prior to compare against). Uses the same trend color so the
+          numbers line up with the icon. */}
+      {delta && (
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] tabular-nums">
+          <DeltaChip
+            label="vol"
+            value={delta.dVolume}
+            unit="kg"
+            tone={trendTone}
+            showSign
+          />
+          <DeltaChip
+            label="max"
+            value={delta.dMaxWeight}
+            unit="kg"
+            tone={trendTone}
+            showSign
+          />
+          <DeltaChip
+            label="reps"
+            value={delta.dReps}
+            tone={trendTone}
+            showSign
+          />
+        </div>
+      )}
     </div>
+  );
+}
+
+function DeltaChip({
+  label,
+  value,
+  unit,
+  tone,
+  showSign,
+}: {
+  label: string;
+  value: number;
+  unit?: string;
+  tone: string;
+  /** When true, prefix positive values with "+" (so 5 reads as "+5"). */
+  showSign?: boolean;
+}) {
+  if (value === 0) return null;
+  const sign = value > 0 ? "+" : "−";
+  const magnitude = Math.abs(value);
+  // Round weights to 1 decimal so a "+2.5kg" delta doesn't show as "+2.4998kg".
+  const display = unit === "kg" ? magnitude.toFixed(1).replace(/\.0$/, "") : magnitude.toString();
+  return (
+    <span className={clsx("inline-flex items-center gap-1", tone)}>
+      <span className="text-zinc-500">{label}</span>
+      <span>
+        {showSign ? sign : ""}
+        {display}
+        {unit ?? ""}
+      </span>
+    </span>
   );
 }
 
