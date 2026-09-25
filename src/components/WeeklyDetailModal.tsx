@@ -11,11 +11,12 @@ import {
 } from "@/lib/stats";
 import {
   formatDate,
+  formatRelativeDay,
   formatSetSummary,
   formatVolume,
   pluralize,
 } from "@/lib/format";
-import type { Exercise, SetEntry, WorkoutExercise } from "@/lib/types";
+import type { Exercise, MuscleGroup, SetEntry, WorkoutExercise } from "@/lib/types";
 
 /**
  * Modal showing the per-exercise set breakdown for a single week (this week
@@ -164,6 +165,30 @@ export function WeeklyDetailModal({
   const totalReps = exerciseGroups.reduce((s, g) => s + g.reps, 0);
   const totalVolume = exerciseGroups.reduce((s, g) => s + g.volume, 0);
   const workoutCount = new Set(rows.map((r) => r.workoutId)).size;
+  // Sorted unique workout dates inside this window — shown in the subtitle
+  // so the user can verify what's actually being included (e.g. when a chip
+  // shows 0 but the user remembers logging a session, they can see whether
+  // the session was logged on a date inside the window or just outside it).
+  const workoutDates = Array.from(new Set(rows.map((r) => r.workoutDate))).sort();
+
+  // Diagnostic: for every muscle group the user has EVER logged, find the
+  // most recent workout date that contained a set of that group — even if
+  // that date is outside this window. If a chip on the home page shows 0
+  // but this list shows a recent date, the bucket is wrong. If the date
+  // is genuinely old, the chip is right.
+  const recentByGroup = useMemo(() => {
+    const m = new Map<MuscleGroup, string>();
+    // Iterate workouts newest-first (they're already sorted desc by getWorkouts).
+    for (const w of workouts) {
+      for (const block of w.exercises) {
+        if (block.sets.length === 0) continue;
+        const ex = exercises.find((e) => e.id === block.exerciseId);
+        const g = (ex?.muscleGroup ?? "other") as MuscleGroup;
+        if (!m.has(g)) m.set(g, w.date);
+      }
+    }
+    return m;
+  }, [workouts, exercises]);
 
   return (
     <div
@@ -187,6 +212,14 @@ export function WeeklyDetailModal({
             <p className="text-xs text-zinc-400">
               {pluralize(workoutCount, "workout")} ·{" "}
               {pluralize(exerciseGroups.length, "exercise")}
+            </p>
+            <p className="mt-0.5 text-[10px] text-zinc-500 tabular-nums">
+              {formatDate(window.start)} – {formatDate(addDaysISO(window.end, -1))}
+              {workoutDates.length > 0 && (
+                <>
+                  {" "}· {workoutDates.map((d) => formatRelativeDay(d)).join(", ")}
+                </>
+              )}
             </p>
           </div>
           <button
@@ -217,6 +250,7 @@ export function WeeklyDetailModal({
                   group={g}
                 />
               ))}
+              <OutOfWindowRecents recentByGroup={recentByGroup} windowStart={window.start} />
             </div>
           )}
         </div>
@@ -359,5 +393,52 @@ function EmptyState() {
         to start a session.
       </p>
     </div>
+  );
+}
+
+/** Diagnostic footer: for each muscle group the user has EVER logged,
+ *  show the most recent workout date that contained a set of that group.
+ *  Surfaces "legs 0 in this window" answers — was the last leg session
+ *  inside the window or genuinely older?
+ *
+ *  Only renders groups whose most-recent date is OUTSIDE the current
+ *  window, so the modal stays quiet when nothing is missing. */
+function OutOfWindowRecents({
+  recentByGroup,
+  windowStart,
+}: {
+  recentByGroup: Map<MuscleGroup, string>;
+  windowStart: string;
+}) {
+  const MUSCLE_DISPLAY_ORDER: MuscleGroup[] = [
+    "chest",
+    "back",
+    "shoulders",
+    "arms",
+    "legs",
+    "glutes",
+    "core",
+    "cardio",
+    "other",
+  ];
+  const outOfWindow = MUSCLE_DISPLAY_ORDER
+    .filter((g) => recentByGroup.has(g) && recentByGroup.get(g)! < windowStart);
+  if (outOfWindow.length === 0) return null;
+  return (
+    <section className="rounded-2xl border border-dashed border-zinc-700 bg-zinc-900/40 p-3">
+      <div className="mb-1.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+        Most recent outside this week
+      </div>
+      <div className="flex flex-wrap gap-x-3 gap-y-1 text-xs">
+        {outOfWindow.map((g) => (
+          <span key={g} className="inline-flex items-center gap-1">
+            <span className="text-zinc-500">{g}</span>
+            <span className="tabular-nums text-zinc-300">
+              {formatRelativeDay(recentByGroup.get(g)!)}
+            </span>
+          </span>
+        ))}
+      </div>
+    </section>
   );
 }
