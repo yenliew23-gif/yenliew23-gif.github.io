@@ -264,6 +264,15 @@ export function thisWeekVsLastWeek(
   // Bucket set counts by muscle group for both weeks. We work from the raw
   // workouts (not the aggregated WeeklyVolume) because WeeklyVolume only
   // tracks totals — we need per-set-type breakdown by group.
+  //
+  // If the caller didn't pass exercises (or passed [] before the
+  // useExercises hook populated), fall back to reading localStorage
+  // synchronously so we don't render a misleading "No sets logged yet"
+  // on first paint. See the same pattern in log/page.tsx.
+  const exerciseMap =
+    exercises.length > 0
+      ? new Map(exercises.map((e) => [e.id, e.muscleGroup] as const))
+      : exercisesFromStorageMap();
   const thisWeekStart = thisWeek.weekStart;
   const lastWeekStart = lastWeek.weekStart;
   const setsByMuscleThisWeek: Partial<Record<MuscleGroup, number>> = {};
@@ -277,7 +286,7 @@ export function thisWeekVsLastWeek(
         : null;
     if (!bucket) continue;
     for (const block of w.exercises) {
-      const group = exercises.find((e) => e.id === block.exerciseId)?.muscleGroup;
+      const group = exerciseMap.get(block.exerciseId);
       if (!group) continue;
       bucket[group] = (bucket[group] ?? 0) + block.sets.length;
     }
@@ -294,6 +303,29 @@ export function thisWeekVsLastWeek(
       lastWeek: setsByMuscleLastWeek,
     },
   };
+}
+
+/** Read exercises directly from localStorage and return an id → muscleGroup
+ *  map. Used as a fallback when callers don't have the exercises list yet
+ *  (the useExercises hook returns [] on first paint). Returns an empty map
+ *  on any failure or non-browser environment. */
+function exercisesFromStorageMap(): Map<string, MuscleGroup> {
+  if (typeof window === "undefined") return new Map();
+  try {
+    const raw = window.localStorage.getItem("gym.exercises.v1");
+    if (!raw) return new Map();
+    const parsed = JSON.parse(raw);
+    if (!Array.isArray(parsed)) return new Map();
+    const m = new Map<string, MuscleGroup>();
+    for (const ex of parsed as Array<{ id: string; muscleGroup: MuscleGroup }>) {
+      if (ex && typeof ex.id === "string" && ex.muscleGroup) {
+        m.set(ex.id, ex.muscleGroup);
+      }
+    }
+    return m;
+  } catch {
+    return new Map();
+  }
 }
 
 export function uniqueExercisesUsed(workouts: Workout[]): string[] {
