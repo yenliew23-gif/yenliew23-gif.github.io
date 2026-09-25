@@ -18,6 +18,15 @@ export function weekStartOf(dateISO: string): string {
   return formatLocalDate(d);
 }
 
+/** Add N days to an ISO yyyy-mm-dd date string and return the same format.
+ *  Used to compute the upper bound (exclusive) of a week range. Strings are
+ *  parsed via Date so DST transitions don't shift the day. */
+function addDaysISO(dateISO: string, days: number): string {
+  const d = new Date(dateISO + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return formatLocalDate(d);
+}
+
 /** True when this set is a "weight × reps" set (the only kind that counts toward
  *  traditional volume and 1RM numbers). */
 export function isWeightRepsSet(set: SetEntry): boolean {
@@ -275,13 +284,20 @@ export function thisWeekVsLastWeek(
       : exercisesFromStorageMap();
   const thisWeekStart = thisWeek.weekStart;
   const lastWeekStart = lastWeek.weekStart;
+  // The week-start date is the Monday of that week; we need to bucket every
+  // workout whose date falls within [weekStart, weekStart + 7 days). Comparing
+  // w.date === weekStart only matches workouts logged *on* Monday — the bug
+  // we're fixing: with yesterday's workout on Sep 24 and this week's Monday
+  // on Sep 22, the equality check missed every workout and the chips
+  // rendered as "No sets logged yet" despite having data.
+  const thisWeekEnd = addDaysISO(thisWeekStart, 7);
   const setsByMuscleThisWeek: Partial<Record<MuscleGroup, number>> = {};
   const setsByMuscleLastWeek: Partial<Record<MuscleGroup, number>> = {};
   for (const w of workouts) {
     const bucket =
-      w.date === thisWeekStart
+      w.date >= thisWeekStart && w.date < thisWeekEnd
         ? setsByMuscleThisWeek
-        : w.date === lastWeekStart
+        : w.date >= lastWeekStart && w.date < thisWeekStart
         ? setsByMuscleLastWeek
         : null;
     if (!bucket) continue;
