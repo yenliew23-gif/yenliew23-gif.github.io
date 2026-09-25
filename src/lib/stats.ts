@@ -302,8 +302,17 @@ export function thisWeekVsLastWeek(
         : null;
     if (!bucket) continue;
     for (const block of w.exercises) {
-      const group = exerciseMap.get(block.exerciseId);
-      if (!group) continue;
+      // Fall back to "other" when the exercise's muscleGroup is missing or
+      // not one of the known groups — a stale localStorage record (from a
+      // pre-per-set-type version or a cloud row that pre-dates the field)
+      // would otherwise silently drop those sets from every chip. Counting
+      // them under "other" makes the data visible AND surfaces the issue so
+      // the user can fix the exercise's muscleGroup on the Exercises page.
+      const raw = exerciseMap.get(block.exerciseId) as MuscleGroup | undefined;
+      const group: MuscleGroup =
+        raw && ["chest","back","shoulders","arms","legs","glutes","core","cardio","other"].includes(raw)
+          ? raw
+          : "other";
       bucket[group] = (bucket[group] ?? 0) + block.sets.length;
     }
   }
