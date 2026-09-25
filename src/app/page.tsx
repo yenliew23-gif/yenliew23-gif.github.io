@@ -16,14 +16,17 @@ import {
   totalVolume,
 } from "@/lib/stats";
 import { formatPct, formatVolume, formatWeekLabel, pluralize } from "@/lib/format";
-import type { WeeklyVolume } from "@/lib/types";
+import type { MuscleGroup, WeeklyVolume } from "@/lib/types";
 
 export default function HomePage() {
   const workouts = useWorkouts();
   const exercises = useExercises();
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
-  const summary = useMemo(() => thisWeekVsLastWeek(workouts), [workouts]);
+  const summary = useMemo(
+    () => thisWeekVsLastWeek(workouts, exercises),
+    [workouts, exercises]
+  );
   const weekly = useMemo(() => lastNWeeksVolume(workouts, 6), [workouts]);
 
   const recent = workouts.slice(0, 3);
@@ -90,7 +93,11 @@ export default function HomePage() {
       />
 
       <div className="space-y-4 px-4 pt-4">
-        {/* This week vs last week */}
+        {/* This week vs last week — both cards show a per-muscle-group set
+            breakdown so the user can see WHERE volume came from, not just
+            that it went up or down. Chip color always means "this week's
+            count vs last week's count for the same group" — emerald = up,
+            rose = down, zinc = same / no prior. */}
         {summary && (
           <section>
             <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
@@ -100,15 +107,26 @@ export default function HomePage() {
               <StatCard
                 label="This week"
                 value={formatVolume(summary.thisWeek.volume)}
-                hint={pluralize(summary.thisWeek.totalSets, "set")}
+                hint={
+                  <MuscleGroupChips
+                    thisWeek={summary.setsByMuscle.thisWeek}
+                    lastWeek={summary.setsByMuscle.lastWeek}
+                  />
+                }
               />
               <StatCard
                 label="vs Last week"
                 value={formatVolume(summary.lastWeek.volume)}
                 hint={
-                  <span className="inline-flex items-center gap-1">
-                    <DeltaPill pct={summary.volumeDeltaPct} />
-                  </span>
+                  <div className="space-y-1.5">
+                    <div className="inline-flex items-center gap-1">
+                      <DeltaPill pct={summary.volumeDeltaPct} />
+                    </div>
+                    <MuscleGroupChips
+                      thisWeek={summary.setsByMuscle.thisWeek}
+                      lastWeek={summary.setsByMuscle.lastWeek}
+                    />
+                  </div>
                 }
                 tone={
                   summary.volumeDelta > 0
@@ -406,6 +424,81 @@ function WeeklyVolumeChart({ weekly }: { weekly: WeeklyVolume[] }) {
       <div className="mt-2 text-center text-xs text-zinc-500">
         Last 6 weeks
       </div>
+    </div>
+  );
+}
+
+/**
+ * Display order for muscle groups in the "This week vs last" chips. Puts
+ * the user's commonly-requested groups (chest / back / arms / core) first,
+ * then the rest in a sensible order. Groups with zero sets in BOTH weeks
+ * are filtered out at the call site.
+ */
+const MUSCLE_DISPLAY_ORDER: MuscleGroup[] = [
+  "chest",
+  "back",
+  "shoulders",
+  "arms",
+  "legs",
+  "glutes",
+  "core",
+  "cardio",
+  "other",
+];
+
+/**
+ * Compact per-muscle-group set-count breakdown, shown inside both
+ * "This week" and "vs Last week" cards on the home page.
+ *
+ * Color rule: each chip's color reflects the **delta vs the other week**
+ * for that same muscle group — emerald if this week's count is higher,
+ * rose if lower, zinc if equal or no prior data. So both cards render the
+ * same chip colors (both cards' chips answer "is this week up vs last?").
+ */
+function MuscleGroupChips({
+  thisWeek,
+  lastWeek,
+}: {
+  thisWeek: Partial<Record<MuscleGroup, number>>;
+  lastWeek: Partial<Record<MuscleGroup, number>>;
+}) {
+  // Build the merged list of groups (union of this week + last week),
+  // filtered to those with > 0 sets in at least one of the two weeks,
+  // then ordered by MUSCLE_DISPLAY_ORDER.
+  const allGroups = new Set<MuscleGroup>([
+    ...(Object.keys(thisWeek) as MuscleGroup[]),
+    ...(Object.keys(lastWeek) as MuscleGroup[]),
+  ]);
+  const groups = MUSCLE_DISPLAY_ORDER.filter((g) => allGroups.has(g));
+
+  if (groups.length === 0) {
+    return (
+      <div className="text-[10px] text-zinc-500">
+        No sets logged yet
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-wrap gap-x-2 gap-y-1 text-[10px] tabular-nums">
+      {groups.map((g) => {
+        const tw = thisWeek[g] ?? 0;
+        const lw = lastWeek[g] ?? 0;
+        // Color rule for "is this week up?": compare this week's count for
+        // this group to last week's. Same rule for both cards' chips.
+        let tone = "text-zinc-400";
+        if (tw > 0 || lw > 0) {
+          if (tw > lw) tone = "text-emerald-400";
+          else if (tw < lw) tone = "text-rose-400";
+          else tone = "text-zinc-400";
+        }
+        return (
+          <span key={g} className="inline-flex items-center gap-1">
+            <span className="text-zinc-500">{g}</span>
+            <span className={tone}>{tw}</span>
+          </span>
+        );
+      })}
     </div>
   );
 }

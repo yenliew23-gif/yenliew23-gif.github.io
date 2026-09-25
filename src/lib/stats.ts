@@ -1,6 +1,7 @@
 import type {
   Exercise,
   ExerciseProgressPoint,
+  MuscleGroup,
   SetEntry,
   WeeklyVolume,
   Workout,
@@ -236,12 +237,22 @@ export function lastNWeeksVolume(workouts: Workout[], n: number): WeeklyVolume[]
   return result;
 }
 
-export function thisWeekVsLastWeek(workouts: Workout[]): {
+export function thisWeekVsLastWeek(
+  workouts: Workout[],
+  exercises: Exercise[] = []
+): {
   thisWeek: WeeklyVolume;
   lastWeek: WeeklyVolume;
   volumeDelta: number;
   volumeDeltaPct: number;
   setsDelta: number;
+  /** Set counts broken down by muscle group for both weeks. Only groups
+   *  with at least one set are included, so the home page can render a
+   *  compact list like "chest 12 · back 18 · arms 22". */
+  setsByMuscle: {
+    thisWeek: Partial<Record<MuscleGroup, number>>;
+    lastWeek: Partial<Record<MuscleGroup, number>>;
+  };
 } | null {
   const last = lastNWeeksVolume(workouts, 2);
   if (last.length < 2) return null;
@@ -249,12 +260,39 @@ export function thisWeekVsLastWeek(workouts: Workout[]): {
   const volumeDelta = thisWeek.volume - lastWeek.volume;
   const volumeDeltaPct =
     lastWeek.volume > 0 ? (volumeDelta / lastWeek.volume) * 100 : thisWeek.volume > 0 ? 100 : 0;
+
+  // Bucket set counts by muscle group for both weeks. We work from the raw
+  // workouts (not the aggregated WeeklyVolume) because WeeklyVolume only
+  // tracks totals — we need per-set-type breakdown by group.
+  const thisWeekStart = thisWeek.weekStart;
+  const lastWeekStart = lastWeek.weekStart;
+  const setsByMuscleThisWeek: Partial<Record<MuscleGroup, number>> = {};
+  const setsByMuscleLastWeek: Partial<Record<MuscleGroup, number>> = {};
+  for (const w of workouts) {
+    const bucket =
+      w.date === thisWeekStart
+        ? setsByMuscleThisWeek
+        : w.date === lastWeekStart
+        ? setsByMuscleLastWeek
+        : null;
+    if (!bucket) continue;
+    for (const block of w.exercises) {
+      const group = exercises.find((e) => e.id === block.exerciseId)?.muscleGroup;
+      if (!group) continue;
+      bucket[group] = (bucket[group] ?? 0) + block.sets.length;
+    }
+  }
+
   return {
     thisWeek,
     lastWeek,
     volumeDelta,
     volumeDeltaPct,
     setsDelta: thisWeek.totalSets - lastWeek.totalSets,
+    setsByMuscle: {
+      thisWeek: setsByMuscleThisWeek,
+      lastWeek: setsByMuscleLastWeek,
+    },
   };
 }
 
