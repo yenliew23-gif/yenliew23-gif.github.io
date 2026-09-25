@@ -317,6 +317,33 @@ export function thisWeekVsLastWeek(
     }
   }
 
+  // Temporary diagnostic — when the home page says "legs 0" but the modal
+  // shows leg exercises in the same window, this reveals exactly which
+  // exerciseId the bucket lookup failed on. Console-only; safe to remove
+  // once the bucketing bug is closed.
+  if (typeof window !== "undefined") {
+    const legIds = Array.from(exerciseMap.entries())
+      .filter(([, g]) => g === "legs")
+      .map(([id]) => id);
+    const legWorkouts = workouts
+      .filter((w) => w.date >= lastWeekStart && w.date < thisWeekEnd)
+      .flatMap((w) => w.exercises.map((b) => ({ date: w.date, block: b })))
+      .filter((r) => legIds.includes(r.block.exerciseId));
+    console.log("[gym/muscle-buckets]", {
+      thisWeekStart,
+      lastWeekStart,
+      thisWeekEnd,
+      setsByMuscleThisWeek: { ...setsByMuscleThisWeek },
+      setsByMuscleLastWeek: { ...setsByMuscleLastWeek },
+      legExerciseIds: legIds,
+      legWorkoutsInWindow: legWorkouts.map((r) => ({
+        date: r.date,
+        exerciseId: r.block.exerciseId,
+        sets: r.block.sets.length,
+      })),
+    });
+  }
+
   return {
     thisWeek,
     lastWeek,
