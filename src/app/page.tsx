@@ -7,6 +7,7 @@ import { PageShell, PageHeader } from "@/components/PageHeader";
 import { StatCard, DeltaPill } from "@/components/StatCard";
 import { WorkoutCard, type WorkoutTrend } from "@/components/WorkoutCard";
 import { WorkoutDetailModal } from "@/components/WorkoutDetailModal";
+import { WeeklyDetailModal } from "@/components/WeeklyDetailModal";
 import { useExercises, useWorkouts } from "@/lib/hooks";
 import {
   lastNWeeksVolume,
@@ -22,6 +23,9 @@ export default function HomePage() {
   const workouts = useWorkouts();
   const exercises = useExercises();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** When set, opens the per-exercise breakdown modal for the chosen week
+   *  (this week or last week, keyed by the Monday of that week). */
+  const [weeklyViewStart, setWeeklyViewStart] = useState<string | null>(null);
 
   const summary = useMemo(
     () => thisWeekVsLastWeek(workouts, exercises),
@@ -113,6 +117,8 @@ export default function HomePage() {
                     lastWeek={summary.setsByMuscle.lastWeek}
                   />
                 }
+                onClick={() => setWeeklyViewStart(summary.thisWeek.weekStart)}
+                ariaLabel={`Open this-week breakdown (${formatVolume(summary.thisWeek.volume)})`}
               />
               <StatCard
                 label="vs Last week"
@@ -135,6 +141,8 @@ export default function HomePage() {
                     ? "negative"
                     : "default"
                 }
+                onClick={() => setWeeklyViewStart(summary.lastWeek.weekStart)}
+                ariaLabel={`Open last-week breakdown (${formatVolume(summary.lastWeek.volume)})`}
               />
             </div>
           </section>
@@ -296,6 +304,12 @@ export default function HomePage() {
         <WorkoutDetailModal
           workoutId={selectedId}
           onClose={() => setSelectedId(null)}
+        />
+      )}
+      {weeklyViewStart && (
+        <WeeklyDetailModal
+          weekStart={weeklyViewStart}
+          onClose={() => setWeeklyViewStart(null)}
         />
       )}
     </PageShell>

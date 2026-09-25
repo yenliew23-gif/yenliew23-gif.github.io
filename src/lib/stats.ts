@@ -21,7 +21,7 @@ export function weekStartOf(dateISO: string): string {
 /** Add N days to an ISO yyyy-mm-dd date string and return the same format.
  *  Used to compute the upper bound (exclusive) of a week range. Strings are
  *  parsed via Date so DST transitions don't shift the day. */
-function addDaysISO(dateISO: string, days: number): string {
+export function addDaysISO(dateISO: string, days: number): string {
   const d = new Date(dateISO + "T00:00:00");
   d.setDate(d.getDate() + days);
   return formatLocalDate(d);
@@ -41,7 +41,7 @@ export function hasReps(set: SetEntry): boolean {
 
 /** Sum of (weight * reps) for weight-reps sets only.
  *  Reps-only, time-based, and distance-based sets do not contribute. */
-function blockVolume(ex: WorkoutExercise): number {
+export function blockVolume(ex: WorkoutExercise): number {
   return ex.sets.reduce(
     (sum, set) => (isWeightRepsSet(set) ? sum + (set.weight ?? 0) * (set.reps ?? 0) : sum),
     0

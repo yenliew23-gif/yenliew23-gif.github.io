@@ -9,27 +9,50 @@ export function StatCard({
   value,
   hint,
   tone = "default",
+  onClick,
+  ariaLabel,
 }: {
   label: string;
   value: string;
   hint?: React.ReactNode;
   tone?: "default" | "positive" | "negative";
+  /** When provided, the whole card becomes a button — used for the home-page
+   *  "This week" / "vs Last week" cards so tapping them opens a per-exercise
+   *  breakdown modal. */
+  onClick?: () => void;
+  ariaLabel?: string;
 }) {
-  return (
-    <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
+  const toneText =
+    tone === "positive"
+      ? "text-emerald-400"
+      : tone === "negative"
+      ? "text-rose-400"
+      : "text-zinc-50";
+  const body = (
+    <>
       <div className="text-xs uppercase tracking-wide text-zinc-400">{label}</div>
-      <div
-        className={clsx(
-          "mt-1 text-2xl font-semibold tabular-nums",
-          tone === "positive" && "text-emerald-400",
-          tone === "negative" && "text-rose-400",
-          tone === "default" && "text-zinc-50"
-        )}
-      >
+      <div className={clsx("mt-1 text-2xl font-semibold tabular-nums", toneText)}>
         {value}
       </div>
       {hint && <div className="mt-1 text-xs text-zinc-400">{hint}</div>}
-    </div>
+    </>
+  );
+  if (!onClick) {
+    return (
+      <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
+        {body}
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={ariaLabel ?? `Open ${label.toLowerCase()} details`}
+      className="block w-full rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4 text-left transition active:scale-[0.98] hover:border-zinc-700 hover:bg-zinc-900"
+    >
+      {body}
+    </button>
   );
 }
 
