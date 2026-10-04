@@ -66,19 +66,26 @@ function emptySet(prev?: SetEntry, defaultType: SetType = "weight-reps"): SetEnt
 }
 
 /**
- * If an exercise name starts with "BW" or "Bodyweight" (case-insensitive),
- * the user almost certainly means a pure-reps movement, so the first set
- * should default to the "reps" type instead of "weight-reps". Anything else
- * falls through to the normal weight-reps default.
+ * Resolve the SetType for the first set of an exercise in the workout
+ * editor. Priority order:
  *
- * Examples that auto-pick "reps":
- *   "BW Dips", "bw lunges", "Bodyweight Squats", "BODYWEIGHT Pull-ups"
- * Examples that stay on "weight-reps":
- *   "Barbell Squat", "Dumbbell Row", "Banded Pull-apart"
+ *   1. `ex.defaultSetType` — the user's saved preference (set on the
+ *      Exercises page at create/edit time).
+ *   2. Name-based heuristic for common carries / holds:
+ *      - "*carry" / "*walk" (loaded carries) → weight-time
+ *      - "plank" / "*hold" → time
+ *      - "BW *" / "Bodyweight *" → reps
+ *   3. Fallback: weight-reps (the most common case).
+ *
+ * The heuristic exists as a UX nicety for when the user types "Suitcase
+ * Carry" without bothering to pick a default type in the create form.
  */
-function defaultSetTypeForExercise(ex?: Exercise): SetType {
+export function defaultSetTypeForExercise(ex?: Exercise): SetType {
+  if (ex?.defaultSetType) return ex.defaultSetType;
   if (!ex) return "weight-reps";
   const name = ex.name.trim().toLowerCase();
+  if (!name) return "weight-reps";
+  // Pure-reps (bodyweight) movements
   if (
     name === "bw" ||
     name.startsWith("bw ") ||
@@ -86,6 +93,18 @@ function defaultSetTypeForExercise(ex?: Exercise): SetType {
     name.startsWith("bodyweight ")
   ) {
     return "reps";
+  }
+  // Time-only holds
+  if (
+    name === "plank" ||
+    name.endsWith(" hold") ||
+    name.endsWith(" plank")
+  ) {
+    return "time";
+  }
+  // Loaded carries — weight × time (suitcase carry, farmer's carry, etc.)
+  if (name.endsWith(" carry") || name.endsWith(" walk")) {
+    return "weight-time";
   }
   return "weight-reps";
 }

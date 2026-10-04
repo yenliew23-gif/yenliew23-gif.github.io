@@ -7,10 +7,15 @@ create table if not exists exercises (
   user_id uuid references auth.users(id) on delete cascade not null,
   name text not null,
   muscle_group text not null,
+  default_set_type text,
   notes text,
   created_at bigint not null,
   archived boolean default false
 );
+
+-- Idempotent column add for users who already ran the old setup before
+-- default_set_type existed. PostgreSQL 9.6+ supports IF NOT EXISTS.
+alter table exercises add column if not exists default_set_type text;
 
 create table if not exists workouts (
   id uuid primary key,

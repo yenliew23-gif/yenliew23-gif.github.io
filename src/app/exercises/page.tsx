@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Plus,
@@ -16,7 +16,50 @@ import clsx from "clsx";
 import { PageShell, PageHeader } from "@/components/PageHeader";
 import { useExercises, useWorkouts } from "@/lib/hooks";
 import { addExercise, deleteExercise, updateExercise } from "@/lib/storage";
-import type { Exercise, MuscleGroup } from "@/lib/types";
+import { SET_TYPE_LABELS } from "@/lib/format";
+import type { Exercise, MuscleGroup, SetType } from "@/lib/types";
+
+/** Empty (user has not picked a default) sentinel for the set-type
+ *  dropdown. Stored as `undefined` on the Exercise; rendered as "" in the
+ *  select. */
+const AUTO_SET_TYPE = "";
+
+/** SetTypes offered in the dropdown, in the order shown. */
+const SET_TYPE_OPTIONS: SetType[] = [
+  "weight-reps",
+  "reps",
+  "weight-time",
+  "time",
+  "distance-time",
+  "weight-distance",
+];
+
+/**
+ * Heuristic auto-pick used to seed the "Default type" dropdown when the
+ * user types an exercise name. Returns "" (= "Auto / smart guess") when no
+ * confident match — the dropdown stays on whatever the user picked last.
+ *
+ * Returns the SetType string (or "" for AUTO). Mirrors the
+ * `defaultSetTypeForExercise` heuristic in WorkoutEditor so the create-time
+ * preview matches what the editor will actually pick at first set add.
+ */
+function suggestSetType(name: string): SetType | "" {
+  const n = name.trim().toLowerCase();
+  if (!n) return AUTO_SET_TYPE;
+  if (n === "bw" || n.startsWith("bw ") || n === "bodyweight" || n.startsWith("bodyweight ")) {
+    return "reps";
+  }
+  if (n === "plank" || n.endsWith(" hold") || n.endsWith(" plank")) {
+    return "time";
+  }
+  if (n.endsWith(" carry") || n.endsWith(" walk")) {
+    return "weight-time";
+  }
+  if (n.endsWith(" run") || n.endsWith(" jog")) {
+    return "distance-time";
+  }
+  return AUTO_SET_TYPE;
+}
 
 const MUSCLE_GROUPS: { value: MuscleGroup; label: string }[] = [
   { value: "chest", label: "Chest" },
@@ -30,7 +73,7 @@ const MUSCLE_GROUPS: { value: MuscleGroup; label: string }[] = [
   { value: "other", label: "Other" },
 ];
 
-const COMMON_EXERCISES: { name: string; muscleGroup: MuscleGroup }[] = [
+const COMMON_EXERCISES: { name: string; muscleGroup: MuscleGroup; defaultSetType?: SetType }[] = [
   { name: "Bench Press", muscleGroup: "chest" },
   { name: "Incline Dumbbell Press", muscleGroup: "chest" },
   { name: "Back Squat", muscleGroup: "legs" },
@@ -38,13 +81,15 @@ const COMMON_EXERCISES: { name: string; muscleGroup: MuscleGroup }[] = [
   { name: "Romanian Deadlift", muscleGroup: "legs" },
   { name: "Deadlift", muscleGroup: "back" },
   { name: "Barbell Row", muscleGroup: "back" },
-  { name: "Pull-up", muscleGroup: "back" },
+  { name: "Pull-up", muscleGroup: "back", defaultSetType: "reps" },
   { name: "Lat Pulldown", muscleGroup: "back" },
   { name: "Overhead Press", muscleGroup: "shoulders" },
   { name: "Lateral Raise", muscleGroup: "shoulders" },
   { name: "Bicep Curl", muscleGroup: "arms" },
   { name: "Tricep Pushdown", muscleGroup: "arms" },
-  { name: "Plank", muscleGroup: "core" },
+  { name: "Plank", muscleGroup: "core", defaultSetType: "time" },
+  { name: "Suitcase Carry", muscleGroup: "core", defaultSetType: "weight-time" },
+  { name: "Farmer's Carry", muscleGroup: "core", defaultSetType: "weight-time" },
 ];
 
 export default function ExercisesPage() {
@@ -53,6 +98,16 @@ export default function ExercisesPage() {
   const [q, setQ] = useState("");
   const [newName, setNewName] = useState("");
   const [newGroup, setNewGroup] = useState<MuscleGroup>("other");
+  // "" means "Auto (smart guess)" — the editor will pick based on the
+  // exercise name. The editor calls `defaultSetTypeForExercise(ex)` which
+  // returns the user's pick when set, else falls back to the heuristic.
+  const [newType, setNewType] = useState<SetType | "">(AUTO_SET_TYPE);
+  // When the user is typing a name with a confident auto-suggest (e.g.
+  // "Suitcase Carry"), we let the heuristic seed the dropdown unless the
+  // user has *deliberately* picked something else. We track that with a
+  // flag — when the user manually changes the dropdown, the flag flips and
+  // further name edits no longer override their choice.
+  const [typeTouched, setTypeTouched] = useState(false);
 
   const usageCount = useMemo(() => {
     const map = new Map<string, number>();
@@ -81,8 +136,14 @@ export default function ExercisesPage() {
 
   async function handleAdd() {
     if (!newName.trim()) return;
-    addExercise({ name: newName.trim(), muscleGroup: newGroup });
+    addExercise({
+      name: newName.trim(),
+      muscleGroup: newGroup,
+      defaultSetType: newType === AUTO_SET_TYPE ? undefined : newType,
+    });
     setNewName("");
+    setNewType(AUTO_SET_TYPE);
+    setTypeTouched(false);
   }
 
   function handleAddCommon() {
@@ -150,7 +211,17 @@ export default function ExercisesPage() {
             <input
               type="text"
               value={newName}
-              onChange={(e) => setNewName(e.target.value)}
+              onChange={(e) => {
+                const next = e.target.value;
+                setNewName(next);
+                // Re-run the auto-suggest unless the user has deliberately
+                // picked a type. This way typing "Suitcase Carry" seeds the
+                // dropdown with "weight-time" but their manual pick sticks
+                // through subsequent edits.
+                if (!typeTouched) {
+                  setNewType(suggestSetType(next));
+                }
+              }}
               onKeyDown={(e) => e.key === "Enter" && handleAdd()}
               placeholder="e.g. Incline Bench"
               className="h-10 flex-1 rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500"
@@ -163,6 +234,22 @@ export default function ExercisesPage() {
               {MUSCLE_GROUPS.map((g) => (
                 <option key={g.value} value={g.value}>
                   {g.label}
+                </option>
+              ))}
+            </select>
+            <select
+              value={newType}
+              onChange={(e) => {
+                setNewType(e.target.value as SetType | "");
+                setTypeTouched(true);
+              }}
+              title="Default set type for the first set in the editor"
+              className="h-10 rounded-lg border border-zinc-800 bg-zinc-950 px-2 text-sm text-zinc-100 outline-none focus:border-emerald-500"
+            >
+              <option value={AUTO_SET_TYPE}>Auto</option>
+              {SET_TYPE_OPTIONS.map((t) => (
+                <option key={t} value={t}>
+                  {SET_TYPE_LABELS[t]}
                 </option>
               ))}
             </select>
@@ -292,6 +379,11 @@ function EditExerciseDialog({
 }) {
   const [name, setName] = useState(exercise.name);
   const [muscleGroup, setMuscleGroup] = useState<MuscleGroup>(exercise.muscleGroup);
+  // Stored as the picked type OR "" (= "Auto / smart guess"). On save we
+  // translate "" back to undefined so the editor picks via the heuristic.
+  const [defaultSetType, setDefaultSetType] = useState<SetType | "">(
+    exercise.defaultSetType ?? AUTO_SET_TYPE
+  );
   const [notes, setNotes] = useState(exercise.notes ?? "");
 
   function handleSave() {
@@ -299,6 +391,7 @@ function EditExerciseDialog({
     updateExercise(exercise.id, {
       name: name.trim(),
       muscleGroup,
+      defaultSetType: defaultSetType === AUTO_SET_TYPE ? undefined : defaultSetType,
       notes: notes.trim() || undefined,
     });
     onClose();
@@ -353,6 +446,32 @@ function EditExerciseDialog({
                 </option>
               ))}
             </select>
+          </label>
+
+          <label className="block">
+            <span className="text-xs uppercase tracking-wide text-zinc-400">
+              Default set type
+            </span>
+            <select
+              value={defaultSetType}
+              onChange={(e) =>
+                setDefaultSetType(e.target.value as SetType | "")
+              }
+              className="mt-1 h-11 w-full rounded-2xl border border-zinc-800 bg-zinc-950 px-3 text-base text-zinc-100 outline-none focus:border-emerald-500"
+            >
+              <option value={AUTO_SET_TYPE}>
+                Auto (smart guess from name)
+              </option>
+              {SET_TYPE_OPTIONS.map((t) => (
+                <option key={t} value={t}>
+                  {SET_TYPE_LABELS[t]}
+                </option>
+              ))}
+            </select>
+            <span className="mt-1 block text-[10px] text-zinc-500">
+              Seeds the first set when you log this exercise. Already-logged
+              sets keep the type they were saved with.
+            </span>
           </label>
 
           <label className="block">

@@ -15,6 +15,15 @@ export interface Exercise {
   id: string;
   name: string;
   muscleGroup: MuscleGroup;
+  /**
+   * Optional user-chosen default for the first set of this exercise in the
+   * workout editor. When undefined, the editor falls back to a name-based
+   * heuristic ("BW"/"Bodyweight" → reps, etc.). Set to one of the SetType
+   * values to override the heuristic at create / edit time. Already-logged
+   * sets keep the type they were saved with — this only seeds the *next*
+   * set the user adds.
+   */
+  defaultSetType?: SetType;
   notes?: string;
   createdAt: number; // epoch ms
   archived?: boolean;
@@ -100,6 +109,10 @@ export interface ExerciseProgressPoint {
   topSetVolume: number; // weight * reps of heaviest set
   totalVolume: number; // sum of weight * reps across all sets that day
   totalReps: number;
+  /** Sum of `duration` (seconds) across all timed sets that day —
+   *  weight-time, time, and distance-time. Zero if no timed sets. Lets the
+   * Progress page track carries / runs / planks over weeks. */
+  totalTime: number;
   estimated1RM: number; // Epley: weight * (1 + reps/30)
 }
 

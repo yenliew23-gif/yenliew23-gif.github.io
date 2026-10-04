@@ -39,6 +39,14 @@ export function hasReps(set: SetEntry): boolean {
   return t === "weight-reps" || t === "reps";
 }
 
+/** True when this set has a meaningful duration (time, weight-time, or
+ *  distance-time). Used by the progress page's "total time" metric so we
+ *  sum across all timed set types, not just one. */
+export function hasDuration(set: SetEntry): boolean {
+  const t = set.type ?? "weight-reps";
+  return t === "weight-time" || t === "time" || t === "distance-time";
+}
+
 /** Sum of (weight * reps) for weight-reps sets only.
  *  Reps-only, time-based, and distance-based sets do not contribute. */
 export function blockVolume(ex: WorkoutExercise): number {
@@ -103,16 +111,26 @@ export function progressByExercise(
     const ex = w.exercises.find((e) => e.exerciseId === exerciseId);
     if (!ex || ex.sets.length === 0) continue;
 
-    // Volume / weight / 1RM only consider weight × reps sets.
+    // Volume / weight / 1RM only consider weight × reps sets. Time-based
+    // exercises (carries, planks, runs) don't contribute to those fields
+    // but still get a date point so the user sees the session happened.
     const wrSets = ex.sets.filter(isWeightRepsSet);
+    // Total time across every timed set type (weight-time, time,
+    // distance-time) so the Progress page can chart it independently.
+    const timedSets = ex.sets.filter(hasDuration);
+    const totalTime = timedSets.reduce((s, set) => s + (set.duration ?? 0), 0);
+
     if (wrSets.length === 0) {
-      // No traditional lifts in this workout — record a zero point so the date shows up.
+      // No traditional lifts in this workout — record a zero point so the
+      // date still shows up on charts that filter by metric. Total time
+      // is preserved when applicable.
       points.push({
         date: w.date,
         maxWeight: 0,
         topSetVolume: 0,
         totalVolume: 0,
         totalReps: blockReps(ex),
+        totalTime,
         estimated1RM: 0,
       });
       continue;
@@ -134,6 +152,7 @@ export function progressByExercise(
       topSetVolume: (topSet.weight ?? 0) * (topSet.reps ?? 0),
       totalVolume: totalVol,
       totalReps: blockReps(ex),
+      totalTime,
       estimated1RM: estimated1RM(topSet.weight ?? 0, topSet.reps ?? 0),
     });
   }
@@ -159,6 +178,86 @@ export function personalRecord(
     }
   }
   return best;
+}
+
+/** Type-aware PR — picks the most meaningful single-set record for the
+ *  exercise given what the user has actually logged.
+ *
+ *  - For weight × reps: weight (heaviest, tiebreak reps), Epley 1RM.
+ *  - For reps-only: total reps.
+ *  - For timed sets (weight-time, time, distance-time): longest single
+ *    set by `duration` (seconds).
+ *  - Returns `null` when no recordable sets exist for the dominant type.
+ *
+ *  The Progress page picks the metric that's relevant to the displayed
+ *  exercise, so a "Suitcase Carry" shows its longest set instead of an
+ *  empty PR card. */
+export function personalRecordForType(
+  workouts: Workout[],
+  exerciseId: string
+): {
+  /** Which metric to render the PR with. */
+  kind: "weight-reps" | "reps" | "duration";
+  weight?: number;
+  reps?: number;
+  /** Seconds. */
+  duration?: number;
+  date: string;
+} | null {
+  // Gather every set across every workout for this exercise, then pick the
+  // best per the dominant type.
+  const sets: { s: SetEntry; date: string }[] = [];
+  for (const w of workouts) {
+    const ex = w.exercises.find((e) => e.exerciseId === exerciseId);
+    if (!ex) continue;
+    for (const s of ex.sets) sets.push({ s, date: w.date });
+  }
+  if (sets.length === 0) return null;
+  // Prefer weight-reps if any are present (most common case).
+  const wr = sets.filter((x) => isWeightRepsSet(x.s));
+  if (wr.length > 0) {
+    let best: typeof wr[number] | null = null;
+    for (const x of wr) {
+      const w0 = x.s.weight ?? 0;
+      const r0 = x.s.reps ?? 0;
+      if (
+        !best ||
+        w0 > (best.s.weight ?? 0) ||
+        (w0 === (best.s.weight ?? 0) && r0 > (best.s.reps ?? 0))
+      ) {
+        best = x;
+      }
+    }
+    return {
+      kind: "weight-reps",
+      weight: best!.s.weight ?? 0,
+      reps: best!.s.reps ?? 0,
+      date: best!.date,
+    };
+  }
+  // Then reps-only.
+  const repsOnly = sets.filter((x) => (x.s.type ?? "weight-reps") === "reps");
+  if (repsOnly.length > 0) {
+    let best = repsOnly[0];
+    for (const x of repsOnly) {
+      if ((x.s.reps ?? 0) > (best.s.reps ?? 0)) best = x;
+    }
+    return { kind: "reps", reps: best.s.reps ?? 0, date: best.date };
+  }
+  // Then any timed set.
+  const timed = sets.filter((x) => hasDuration(x.s));
+  if (timed.length > 0) {
+    let best = timed[0];
+    for (const x of timed) {
+      if ((x.s.duration ?? 0) > (best.s.duration ?? 0)) best = x;
+    }
+    return {
+      kind: "duration",
+      duration: best.s.duration ?? 0,
+      date: best.date,
+    };
+  }
+  return null;
 }
 
 /**
@@ -315,33 +414,6 @@ export function thisWeekVsLastWeek(
           : "other";
       bucket[group] = (bucket[group] ?? 0) + block.sets.length;
     }
-  }
-
-  // Temporary diagnostic — when the home page says "legs 0" but the modal
-  // shows leg exercises in the same window, this reveals exactly which
-  // exerciseId the bucket lookup failed on. Console-only; safe to remove
-  // once the bucketing bug is closed.
-  if (typeof window !== "undefined") {
-    const legIds = Array.from(exerciseMap.entries())
-      .filter(([, g]) => g === "legs")
-      .map(([id]) => id);
-    const legWorkouts = workouts
-      .filter((w) => w.date >= lastWeekStart && w.date < thisWeekEnd)
-      .flatMap((w) => w.exercises.map((b) => ({ date: w.date, block: b })))
-      .filter((r) => legIds.includes(r.block.exerciseId));
-    console.log("[gym/muscle-buckets]", {
-      thisWeekStart,
-      lastWeekStart,
-      thisWeekEnd,
-      setsByMuscleThisWeek: { ...setsByMuscleThisWeek },
-      setsByMuscleLastWeek: { ...setsByMuscleLastWeek },
-      legExerciseIds: legIds,
-      legWorkoutsInWindow: legWorkouts.map((r) => ({
-        date: r.date,
-        exerciseId: r.block.exerciseId,
-        sets: r.block.sets.length,
-      })),
-    });
   }
 
   return {

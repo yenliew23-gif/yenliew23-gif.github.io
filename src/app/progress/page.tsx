@@ -17,10 +17,25 @@ import clsx from "clsx";
 import { PageShell, PageHeader } from "@/components/PageHeader";
 import { WorkoutDetailModal } from "@/components/WorkoutDetailModal";
 import { useExercises, useWorkouts } from "@/lib/hooks";
-import { personalRecord, progressByExercise } from "@/lib/stats";
-import { formatDate, formatPct, formatVolume, formatWeight } from "@/lib/format";
+import {
+  personalRecord,
+  personalRecordForType,
+  progressByExercise,
+} from "@/lib/stats";
+import {
+  formatDate,
+  formatDuration,
+  formatPct,
+  formatVolume,
+  formatWeight,
+} from "@/lib/format";
 
-type Metric = "maxWeight" | "totalVolume" | "estimated1RM" | "totalReps";
+type Metric =
+  | "maxWeight"
+  | "totalVolume"
+  | "estimated1RM"
+  | "totalReps"
+  | "totalTime";
 
 const METRICS: { value: Metric; label: string; unit: string; help: string }[] = [
   {
@@ -46,6 +61,12 @@ const METRICS: { value: Metric; label: string; unit: string; help: string }[] = 
     label: "Total reps",
     unit: "reps",
     help: "Sum of reps across all sets",
+  },
+  {
+    value: "totalTime",
+    label: "Total time",
+    unit: "sec",
+    help: "Sum of duration across timed sets (carries, planks, runs)",
   },
 ];
 
@@ -113,6 +134,15 @@ export default function ProgressPage() {
     () => (selectedId ? personalRecord(workouts, selectedId) : null),
     [workouts, selectedId]
   );
+  /** Type-aware PR — for non-weight-reps exercises (e.g. "Suitcase Carry")
+   *  the weight×reps PR is meaningless, so this surfaces a record that
+   *  matches the dominant set type (longest duration for carries, most
+   *  reps for bodyweight-only, etc.). */
+  const prByType = useMemo(
+    () =>
+      selectedId ? personalRecordForType(workouts, selectedId) : null,
+    [workouts, selectedId]
+  );
 
   // For each date in the progress points, find the workout(s) that contained
   // this exercise. Used to deep-link from the "All sessions" table to the
@@ -146,6 +176,7 @@ export default function ProgressPage() {
   // format helpers
   const formatVal = (v: number) => {
     if (metric === "totalReps") return v.toString();
+    if (metric === "totalTime") return formatDuration(v);
     return formatWeight(v);
   };
 
@@ -253,13 +284,13 @@ export default function ProgressPage() {
         </div>
 
         {/* Metric selector */}
-        <div className="grid grid-cols-4 gap-1.5">
+        <div className="grid grid-cols-5 gap-1.5">
           {METRICS.map((m) => (
             <button
               key={m.value}
               onClick={() => setMetric(m.value)}
               className={clsx(
-                "rounded-xl border px-2 py-2 text-[11px] font-medium",
+                "rounded-xl border px-1.5 py-2 text-[11px] font-medium",
                 metric === m.value
                   ? "border-emerald-500 bg-emerald-500/10 text-emerald-300"
                   : "border-zinc-800 bg-zinc-900/60 text-zinc-300"
@@ -270,8 +301,11 @@ export default function ProgressPage() {
           ))}
         </div>
 
-        {/* PR */}
-        {pr && (
+        {/* PR — type-aware. Weight×reps when the user has any weight-reps
+            sets logged (most common); reps for bodyweight-only; longest
+            duration for carries / planks / runs. Falls back to the original
+            weight×reps PR card when no type-aware record exists. */}
+        {prByType && (
           <section className="flex items-center gap-3 rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-amber-500/15 text-amber-400">
               <Trophy className="h-5 w-5" />
@@ -279,12 +313,22 @@ export default function ProgressPage() {
             <div className="min-w-0">
               <div className="text-xs uppercase tracking-wide text-zinc-400">
                 Personal record
+                {prByType.kind === "duration" && " (longest)"}
+                {prByType.kind === "reps" && " (reps)"}
               </div>
               <div className="text-base font-semibold text-zinc-100">
-                {formatWeight(pr.weight)} × {pr.reps} reps
+                {prByType.kind === "weight-reps" &&
+                  `${formatWeight(prByType.weight ?? 0)} × ${prByType.reps ?? 0} reps`}
+                {prByType.kind === "reps" &&
+                  `${prByType.reps ?? 0} reps`}
+                {prByType.kind === "duration" &&
+                  formatDuration(prByType.duration ?? 0)}
               </div>
               <div className="text-xs text-zinc-500">
-                {formatDate(pr.date)} · est. 1RM {formatWeight(Math.round(pr.estimated1RM * 2) / 2)}
+                {formatDate(prByType.date)}
+                {prByType.kind === "weight-reps" &&
+                  pr &&
+                  ` · est. 1RM ${formatWeight(Math.round(pr.estimated1RM * 2) / 2)}`}
               </div>
             </div>
           </section>

@@ -18,6 +18,7 @@ type ExerciseRow = {
   user_id: string;
   name: string;
   muscle_group: string;
+  default_set_type: string | null;
   notes: string | null;
   created_at: number;
   archived: boolean | null;
@@ -39,6 +40,7 @@ function rowToExercise(r: ExerciseRow): Exercise {
     id: r.id,
     name: r.name,
     muscleGroup: r.muscle_group as Exercise["muscleGroup"],
+    defaultSetType: (r.default_set_type as Exercise["defaultSetType"]) ?? undefined,
     notes: r.notes ?? undefined,
     createdAt: Number(r.created_at),
     archived: r.archived ?? false,
@@ -50,6 +52,7 @@ function exerciseToRow(ex: Exercise): Omit<ExerciseRow, "user_id"> {
     id: ex.id,
     name: ex.name,
     muscle_group: ex.muscleGroup,
+    default_set_type: ex.defaultSetType ?? null,
     notes: ex.notes ?? null,
     created_at: ex.createdAt,
     archived: ex.archived ?? false,
