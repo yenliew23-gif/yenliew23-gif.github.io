@@ -24,12 +24,53 @@ import {
   updateTemplate,
   uid,
 } from "@/lib/storage";
+import { defaultSetTypeForExercise } from "@/components/WorkoutEditor";
+import { SET_TYPE_LABELS } from "@/lib/format";
 import type {
   Exercise,
   MuscleGroup,
+  SetType,
   TemplateExercise,
   WorkoutTemplate,
 } from "@/lib/types";
+
+/** Full SetType list for the UOM dropdown, in display order. The first
+ *  option is "Auto" — keep the exercise's own default type at the top so
+ *  the user can either inherit the exercise-level choice or override per
+ *  template (e.g. a "Push day" template that always uses Weight × Reps
+ *  even if the user later changes an exercise's default to "reps"). */
+const SET_TYPE_OPTIONS: SetType[] = [
+  "weight-reps",
+  "reps",
+  "weight-time",
+  "time",
+  "distance-time",
+  "weight-distance",
+];
+
+/** Resolve which numeric fields are relevant for a given SetType. Returns
+ *  the keys a UI should render input boxes for. */
+function fieldsForType(t: SetType): {
+  weight: boolean;
+  reps: boolean;
+  duration: boolean;
+  distance: boolean;
+} {
+  switch (t) {
+    case "weight-reps":
+      return { weight: true, reps: true, duration: false, distance: false };
+    case "reps":
+      return { weight: false, reps: true, duration: false, distance: false };
+    case "weight-time":
+      return { weight: true, reps: false, duration: true, distance: false };
+    case "time":
+      return { weight: false, reps: false, duration: true, distance: false };
+    case "distance-time":
+      return { weight: false, reps: false, duration: true, distance: true };
+    case "weight-distance":
+      return { weight: true, reps: false, duration: false, distance: true };
+  }
+}
 
 const MUSCLE_GROUPS: { value: MuscleGroup; label: string }[] = [
   { value: "chest", label: "Chest" },
@@ -218,12 +259,18 @@ function TemplateEditor({
 
   function addBlock(ex: Exercise) {
     if (!tpl) return;
+    // Seed the per-template SetType from the exercise's own default (set
+    // on the Exercises page) or the name-based heuristic. Templates that
+    // pre-existed this change won't have defaultSetType; the log page
+    // falls back to the exercise's default in that case.
+    const inferredType = defaultSetTypeForExercise(ex);
     const block: TemplateExercise = {
       id: uid(),
       exerciseId: ex.id,
       order: tpl.exercises.length,
       defaultSets: 3,
       defaultReps: 8,
+      defaultSetType: inferredType,
     };
     persist({ exercises: [...tpl.exercises, block] });
     setPickerOpen(false);
@@ -401,61 +448,175 @@ function TemplateEditor({
                   </div>
                 </div>
 
-                <div className="mt-3 grid grid-cols-3 gap-2">
+                <div className="mt-3 space-y-2">
+                  {/* UOM / Set type — drives which numeric inputs show below */}
                   <label className="block">
                     <div className="text-[10px] uppercase tracking-wide text-zinc-500">
-                      Sets
+                      UOM
                     </div>
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      min="1"
-                      value={block.defaultSets}
-                      onChange={(e) =>
-                        updateBlock(block.id, {
-                          defaultSets: Math.max(1, Number(e.target.value) || 1),
-                        })
+                    <select
+                      value={
+                        block.defaultSetType ??
+                        (ex ? defaultSetTypeForExercise(ex) : "weight-reps")
                       }
-                      className="mt-1 h-10 w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-2 text-center text-base tabular-nums text-zinc-100 outline-none focus:border-emerald-500"
-                    />
+                      onChange={(e) => {
+                        const next = e.target.value as SetType;
+                        updateBlock(block.id, { defaultSetType: next });
+                      }}
+                      className="mt-1 h-10 w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-2 text-base text-zinc-100 outline-none focus:border-emerald-500"
+                    >
+                      {SET_TYPE_OPTIONS.map((t) => (
+                        <option key={t} value={t}>
+                          {SET_TYPE_LABELS[t]}
+                        </option>
+                      ))}
+                    </select>
                   </label>
-                  <label className="block">
-                    <div className="text-[10px] uppercase tracking-wide text-zinc-500">
-                      Reps
-                    </div>
-                    <input
-                      type="number"
-                      inputMode="numeric"
-                      min="1"
-                      value={block.defaultReps}
-                      onChange={(e) =>
-                        updateBlock(block.id, {
-                          defaultReps: Math.max(1, Number(e.target.value) || 1),
-                        })
-                      }
-                      className="mt-1 h-10 w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-2 text-center text-base tabular-nums text-zinc-100 outline-none focus:border-emerald-500"
-                    />
-                  </label>
-                  <label className="block">
-                    <div className="text-[10px] uppercase tracking-wide text-zinc-500">
-                      Weight (kg)
-                    </div>
-                    <input
-                      type="number"
-                      inputMode="decimal"
-                      step="0.5"
-                      min="0"
-                      value={block.defaultWeight ?? ""}
-                      placeholder="—"
-                      onChange={(e) =>
-                        updateBlock(block.id, {
-                          defaultWeight:
-                            e.target.value === "" ? undefined : Number(e.target.value),
-                        })
-                      }
-                      className="mt-1 h-10 w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-2 text-center text-base tabular-nums text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500"
-                    />
-                  </label>
+
+                  {/* Numeric inputs — adapt to the chosen UOM. Sets is
+                      always shown (every set type has a count). The other
+                      three fields appear only when meaningful for the
+                      selected type. */}
+                  {(() => {
+                    const t: SetType =
+                      block.defaultSetType ??
+                      (ex ? defaultSetTypeForExercise(ex) : "weight-reps");
+                    const fields = fieldsForType(t);
+                    return (
+                      <div
+                        className={clsx(
+                          "grid gap-2",
+                          // Grid adapts to how many inputs are visible
+                          [
+                            fields.reps,
+                            fields.weight,
+                            fields.duration,
+                            fields.distance,
+                          ].filter(Boolean).length === 4
+                            ? "grid-cols-4"
+                            : [
+                                fields.reps,
+                                fields.weight,
+                                fields.duration,
+                                fields.distance,
+                              ].filter(Boolean).length === 3
+                            ? "grid-cols-3"
+                            : [
+                                fields.reps,
+                                fields.weight,
+                                fields.duration,
+                                fields.distance,
+                              ].filter(Boolean).length === 2
+                            ? "grid-cols-2"
+                            : "grid-cols-1"
+                        )}
+                      >
+                        {/* Sets — always */}
+                        <label className="block">
+                          <div className="text-[10px] uppercase tracking-wide text-zinc-500">
+                            Sets
+                          </div>
+                          <input
+                            type="number"
+                            inputMode="numeric"
+                            min="1"
+                            value={block.defaultSets}
+                            onChange={(e) =>
+                              updateBlock(block.id, {
+                                defaultSets: Math.max(1, Number(e.target.value) || 1),
+                              })
+                            }
+                            className="mt-1 h-10 w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-2 text-center text-base tabular-nums text-zinc-100 outline-none focus:border-emerald-500"
+                          />
+                        </label>
+                        {fields.reps && (
+                          <label className="block">
+                            <div className="text-[10px] uppercase tracking-wide text-zinc-500">
+                              Reps
+                            </div>
+                            <input
+                              type="number"
+                              inputMode="numeric"
+                              min="1"
+                              value={block.defaultReps}
+                              onChange={(e) =>
+                                updateBlock(block.id, {
+                                  defaultReps: Math.max(1, Number(e.target.value) || 1),
+                                })
+                              }
+                              className="mt-1 h-10 w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-2 text-center text-base tabular-nums text-zinc-100 outline-none focus:border-emerald-500"
+                            />
+                          </label>
+                        )}
+                        {fields.weight && (
+                          <label className="block">
+                            <div className="text-[10px] uppercase tracking-wide text-zinc-500">
+                              Weight (kg)
+                            </div>
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              step="0.5"
+                              min="0"
+                              value={block.defaultWeight ?? ""}
+                              placeholder="—"
+                              onChange={(e) =>
+                                updateBlock(block.id, {
+                                  defaultWeight:
+                                    e.target.value === "" ? undefined : Number(e.target.value),
+                                })
+                              }
+                              className="mt-1 h-10 w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-2 text-center text-base tabular-nums text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500"
+                            />
+                          </label>
+                        )}
+                        {fields.duration && (
+                          <label className="block">
+                            <div className="text-[10px] uppercase tracking-wide text-zinc-500">
+                              Time (sec)
+                            </div>
+                            <input
+                              type="number"
+                              inputMode="numeric"
+                              min="0"
+                              step="1"
+                              value={block.defaultDuration ?? ""}
+                              placeholder="—"
+                              onChange={(e) =>
+                                updateBlock(block.id, {
+                                  defaultDuration:
+                                    e.target.value === "" ? undefined : Number(e.target.value),
+                                })
+                              }
+                              className="mt-1 h-10 w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-2 text-center text-base tabular-nums text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500"
+                            />
+                          </label>
+                        )}
+                        {fields.distance && (
+                          <label className="block">
+                            <div className="text-[10px] uppercase tracking-wide text-zinc-500">
+                              Distance (m)
+                            </div>
+                            <input
+                              type="number"
+                              inputMode="decimal"
+                              min="0"
+                              step="1"
+                              value={block.defaultDistance ?? ""}
+                              placeholder="—"
+                              onChange={(e) =>
+                                updateBlock(block.id, {
+                                  defaultDistance:
+                                    e.target.value === "" ? undefined : Number(e.target.value),
+                                })
+                              }
+                              className="mt-1 h-10 w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-2 text-center text-base tabular-nums text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500"
+                            />
+                          </label>
+                        )}
+                      </div>
+                    );
+                  })()}
                 </div>
               </section>
             );

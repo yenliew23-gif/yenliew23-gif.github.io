@@ -5,16 +5,56 @@ import Link from "next/link";
 import { Sparkles, Plus, ChevronRight } from "lucide-react";
 import { PageShell, PageHeader } from "@/components/PageHeader";
 import { WorkoutEditor } from "@/components/WorkoutEditor";
-import { useTemplates, useWorkouts } from "@/lib/hooks";
+import { defaultSetTypeForExercise } from "@/components/WorkoutEditor";
+import { useExercises, useTemplates, useWorkouts } from "@/lib/hooks";
 import { getTemplate, uid } from "@/lib/storage";
 import { bestAndLastForExercise } from "@/lib/stats";
 import { formatDate, formatWeight } from "@/lib/format";
 import type {
+  Exercise,
   SetEntry,
+  SetType,
   Workout,
   WorkoutExercise,
   WorkoutTemplate,
 } from "@/lib/types";
+
+/** Build a single set entry from a template block + a chosen SetType.
+ *  Only the fields meaningful for the type are populated. Used for both
+ *  the "first time" template-default path and the "best ever" progressive
+ *  overload path when the best was a weight-reps set. */
+function buildSetFromTemplate(
+  te: WorkoutTemplate["exercises"][number],
+  type: SetType,
+  best?: { weight: number; reps: number }
+): SetEntry {
+  const set: SetEntry = { id: uid(), type };
+  switch (type) {
+    case "weight-reps":
+      set.weight = best?.weight ?? te.defaultWeight ?? 0;
+      set.reps = best?.reps ?? te.defaultReps;
+      break;
+    case "reps":
+      set.reps = te.defaultReps;
+      break;
+    case "weight-time":
+      set.weight = te.defaultWeight ?? 0;
+      set.duration = te.defaultDuration;
+      break;
+    case "time":
+      set.duration = te.defaultDuration;
+      break;
+    case "distance-time":
+      set.distance = te.defaultDistance;
+      set.duration = te.defaultDuration;
+      break;
+    case "weight-distance":
+      set.weight = te.defaultWeight ?? 0;
+      set.distance = te.defaultDistance;
+      break;
+  }
+  return set;
+}
 
 /**
  * Read workouts directly from localStorage (not via the useWorkouts hook).
@@ -42,6 +82,7 @@ function workoutsFromStorage(): Workout[] {
 export default function LogPage() {
   const templates = useTemplates();
   const workouts = useWorkouts();
+  const exercises = useExercises();
   const [appliedTemplate, setAppliedTemplate] = useState<WorkoutTemplate | null>(null);
   // "Start blank" sets this to true so the editor appears without a template.
   // We can't just set appliedTemplate=null because the editor only renders
@@ -94,20 +135,31 @@ export default function LogPage() {
         allWorkouts,
         te.exerciseId
       );
+      const ex: Exercise | undefined = exercises.find(
+        (e) => e.id === te.exerciseId
+      );
+      // Resolve the SetType for this template block in priority order:
+      //   1. The template's own per-block defaultSetType (added in this
+      //      revision; lets a "Push day" template override the exercise's
+      //      personal default to weight-reps for everything in it).
+      //   2. The exercise's defaultSetType (set on the Exercises page).
+      //   3. Name-based heuristic.
+      //   4. weight-reps fallback.
+      const t: SetType = te.defaultSetType
+        ? te.defaultSetType
+        : defaultSetTypeForExercise(ex);
 
       let sets: SetEntry[];
       const blockId = uid();
 
-      if (best) {
-        // Progressive overload: replicate the user's heaviest-ever set as
-        // the template's defaultSets count. The user can edit per-set
-        // (e.g. drop last set down to a back-off weight) before saving.
-        sets = Array.from({ length: te.defaultSets }).map(() => ({
-          id: uid(),
-          type: "weight-reps" as const,
-          weight: best.weight,
-          reps: best.reps,
-        }));
+      // Progressive overload only applies to weight-reps exercises. For
+      // other UOMs (carries, planks, runs) the "best" concept is
+      // type-specific and not currently tracked per-set, so we just
+      // pre-fill with the template's defaults.
+      if (best && t === "weight-reps") {
+        sets = Array.from({ length: te.defaultSets }).map(() =>
+          buildSetFromTemplate(te, t, best)
+        );
         // Footnote: show the full sequence of weight-reps sets from the
         // most recent workout (not just the top set), so the user has an
         // immediate comparison of their entire previous session.
@@ -128,12 +180,12 @@ export default function LogPage() {
             `Last time${datePart}: ${lastSummary} · ${bestPart}`;
         }
       } else {
-        // First time for this exercise — fall back to the template defaults.
-        sets = Array.from({ length: te.defaultSets }).map(() => ({
-          id: uid(),
-          weight: te.defaultWeight ?? 0,
-          reps: te.defaultReps,
-        }));
+        // Either first time for this exercise, or non-weight-reps UOM.
+        // Build N copies of the template's pre-fill set with the chosen
+        // SetType. The user can edit per-set before saving.
+        sets = Array.from({ length: te.defaultSets }).map(() =>
+          buildSetFromTemplate(te, t)
+        );
       }
 
       blocks.push({

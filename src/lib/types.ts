@@ -79,10 +79,25 @@ export interface TemplateExercise {
   id: string;
   exerciseId: string;
   order: number;
-  // Pre-fill values for new workouts started from this template
+  // Pre-fill values for new workouts started from this template. Which
+  // numeric fields are meaningful depends on the SetType below; readers
+  // should fall back to the exercise's own defaultSetType when this is
+  // absent, then to "weight-reps".
   defaultSets: number;
   defaultReps: number;
   defaultWeight?: number;
+  /** Time (seconds) for time / weight-time / distance-time sets. */
+  defaultDuration?: number;
+  /** Distance (meters) for distance-time / weight-distance sets. */
+  defaultDistance?: number;
+  /**
+   * Per-template override of the SetType. When set, the workout editor
+   * uses this to pick the right input shape for the first set (and any
+   * subsequent sets the user adds before they change it). When absent, the
+   * exercise's `defaultSetType` is used, then the name-based heuristic,
+   * then "weight-reps".
+   */
+  defaultSetType?: SetType;
 }
 
 export interface WorkoutTemplate {
