@@ -385,14 +385,24 @@ function EditExerciseDialog({
     exercise.defaultSetType ?? AUTO_SET_TYPE
   );
   const [notes, setNotes] = useState(exercise.notes ?? "");
+  // Track whether the user has actually typed in the notes textarea this
+  // session. If they haven't, we preserve the exercise's existing notes
+  // unchanged on save — even if some downstream rendering glitch produced
+  // an empty `notes` state. The user explicitly asked: "leave the
+  // description there regardless of UOM", so the saved description
+  // survives any unrelated edit (muscle group, default set type, etc.).
+  const [notesTouched, setNotesTouched] = useState(false);
 
   function handleSave() {
     if (!name.trim()) return;
+    const trimmedNotes = notes.trim();
     updateExercise(exercise.id, {
       name: name.trim(),
       muscleGroup,
       defaultSetType: defaultSetType === AUTO_SET_TYPE ? undefined : defaultSetType,
-      notes: notes.trim() || undefined,
+      // If the user didn't touch the notes field, keep the existing value
+      // verbatim. Otherwise save the new (possibly empty) value.
+      notes: notesTouched ? (trimmedNotes || undefined) : exercise.notes,
     });
     onClose();
   }
@@ -480,11 +490,21 @@ function EditExerciseDialog({
             </span>
             <textarea
               value={notes}
-              onChange={(e) => setNotes(e.target.value)}
+              onChange={(e) => {
+                setNotes(e.target.value);
+                setNotesTouched(true);
+              }}
               rows={2}
               placeholder="e.g. grip width, machine, setup"
               className="mt-1 w-full rounded-2xl border border-zinc-800 bg-zinc-950 px-4 py-2 text-base text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500"
             />
+            {notesTouched && notes.trim().length === 0 && exercise.notes && (
+              <span className="mt-1 block text-[10px] text-amber-400">
+                Saving as empty will erase the previous description
+                (&ldquo;{exercise.notes.slice(0, 40)}
+                {exercise.notes.length > 40 ? "…" : ""}&rdquo;).
+              </span>
+            )}
           </label>
 
           <div className="flex gap-2 pt-1">
