@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import {
   Plus,
@@ -530,32 +530,12 @@ function TemplateEditor({
                           />
                         </label>
                         {fields.reps && (
-                          <label className="block">
-                            <div className="text-[10px] uppercase tracking-wide text-zinc-500">
-                              Reps
-                            </div>
-                            <input
-                              type="number"
-                              inputMode="numeric"
-                              min="0"
-                              value={block.defaultReps}
-                              onChange={(e) => {
-                                // Allow 0 (the user may want a baseline of
-                                // "0 reps" for rep-change templates, e.g.
-                                // a "Drop set" / "Rest-pause" template that
-                                // intentionally seeds empty). Guard only
-                                // against negatives and NaN.
-                                const raw = e.target.value;
-                                const n = raw === "" ? 0 : Number(raw);
-                                updateBlock(block.id, {
-                                  defaultReps: Number.isFinite(n)
-                                    ? Math.max(0, n)
-                                    : 0,
-                                });
-                              }}
-                              className="mt-1 h-10 w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-2 text-center text-base tabular-nums text-zinc-100 outline-none focus:border-emerald-500"
-                            />
-                          </label>
+                          <RepsField
+                            value={block.defaultReps}
+                            onChange={(n) =>
+                              updateBlock(block.id, { defaultReps: n })
+                            }
+                          />
                         )}
                         {fields.weight && (
                           <label className="block">
@@ -765,5 +745,76 @@ function TemplateEditor({
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Reps field that displays blank when the underlying value is 0, so a
+ * template that intentionally seeds "no reps" (a rep-change baseline, a
+ * rest-pause first set) doesn't visually shout "0" at the user — they
+ * can just start typing. Still permits the user to type 0 explicitly if
+ * they want (the field commits 0 on blur when empty).
+ *
+ * Source of truth stays on the parent (the block's defaultReps number).
+ * We only override the rendered string when the number is 0, and we
+ * commit typed digits straight through so the user sees their input live.
+ */
+function RepsField({
+  value,
+  onChange,
+}: {
+  value: number;
+  onChange: (next: number) => void;
+}) {
+  // While the user is mid-typing we trust the input's own string. Once
+  // they blur, we sync the parent state to the final value (or 0 if they
+  // left it blank). This way typing doesn't fight a controlled="" → 0
+  // re-render every keystroke.
+  const [draft, setDraft] = useState<string>(value === 0 ? "" : String(value));
+  // Re-sync the draft if the parent value changes (e.g. switching UOM,
+  // undo, template re-mount) and the field isn't currently focused.
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (document.activeElement !== inputRef.current) {
+      setDraft(value === 0 ? "" : String(value));
+    }
+  }, [value]);
+  return (
+    <label className="block">
+      <div className="text-[10px] uppercase tracking-wide text-zinc-500">
+        Reps
+      </div>
+      <input
+        ref={inputRef}
+        type="number"
+        inputMode="numeric"
+        min="0"
+        value={draft}
+        placeholder="—"
+        onChange={(e) => {
+          const raw = e.target.value;
+          setDraft(raw);
+          // Commit through immediately so the parent stays the source of
+          // truth and the log page can pre-fill from the live value. Empty
+          // input is treated as 0 (the user is mid-edit / cleared it).
+          if (raw === "") {
+            onChange(0);
+          } else {
+            const n = Number(raw);
+            if (Number.isFinite(n)) {
+              onChange(Math.max(0, n));
+            }
+          }
+        }}
+        onBlur={() => {
+          // On blur, normalize: if they left it blank, show 0 in the
+          // source state (already 0 from onChange) and clear the draft
+          // to the canonical representation. If they typed a number,
+          // ensure the draft is the canonical string for that value.
+          setDraft(value === 0 ? "" : String(value));
+        }}
+        className="mt-1 h-10 w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-2 text-center text-base tabular-nums text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500"
+      />
+    </label>
   );
 }
