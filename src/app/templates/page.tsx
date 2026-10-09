@@ -537,13 +537,22 @@ function TemplateEditor({
                             <input
                               type="number"
                               inputMode="numeric"
-                              min="1"
+                              min="0"
                               value={block.defaultReps}
-                              onChange={(e) =>
+                              onChange={(e) => {
+                                // Allow 0 (the user may want a baseline of
+                                // "0 reps" for rep-change templates, e.g.
+                                // a "Drop set" / "Rest-pause" template that
+                                // intentionally seeds empty). Guard only
+                                // against negatives and NaN.
+                                const raw = e.target.value;
+                                const n = raw === "" ? 0 : Number(raw);
                                 updateBlock(block.id, {
-                                  defaultReps: Math.max(1, Number(e.target.value) || 1),
-                                })
-                              }
+                                  defaultReps: Number.isFinite(n)
+                                    ? Math.max(0, n)
+                                    : 0,
+                                });
+                              }}
                               className="mt-1 h-10 w-full min-w-0 rounded-lg border border-zinc-800 bg-zinc-950 px-2 text-center text-base tabular-nums text-zinc-100 outline-none focus:border-emerald-500"
                             />
                           </label>
