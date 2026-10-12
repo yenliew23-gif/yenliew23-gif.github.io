@@ -325,6 +325,36 @@ export function bestAndLastForExercise(
   return { best, lastSets, lastDate };
 }
 
+/**
+ * Most recent session's full set list for an exercise, regardless of set
+ * type. Returns the SetEntry objects (with their type field intact) so
+ * callers can re-use them directly when pre-filling the workout editor.
+ *
+ * Unlike `bestAndLastForExercise` this is NOT restricted to weight-reps
+ * sets — the user may have a "Suitcase Carry" template that should pre-
+ * fill from a real weight-time session, or a "Plank" template from a
+ * pure-time session, etc.
+ *
+ * Returns `{ sets, date }` with `sets` empty when the user has never
+ * logged this exercise before.
+ */
+export function lastSessionForExercise(
+  workouts: Workout[],
+  exerciseId: string
+): { sets: SetEntry[]; date: string | null } {
+  let date: string | null = null;
+  let sets: SetEntry[] = [];
+  for (const w of workouts) {
+    const ex = w.exercises.find((e) => e.exerciseId === exerciseId);
+    if (!ex || ex.sets.length === 0) continue;
+    if (date === null || w.date > date) {
+      date = w.date;
+      sets = ex.sets;
+    }
+  }
+  return { sets, date };
+}
+
 // Returns last N weeks of weekly volume. Pads earlier weeks with zeros if missing.
 export function lastNWeeksVolume(workouts: Workout[], n: number): WeeklyVolume[] {
   const weekly = weeklyVolumes(workouts);

@@ -8,7 +8,7 @@ import { WorkoutEditor } from "@/components/WorkoutEditor";
 import { defaultSetTypeForExercise } from "@/components/WorkoutEditor";
 import { useExercises, useTemplates, useWorkouts } from "@/lib/hooks";
 import { getTemplate, uid } from "@/lib/storage";
-import { bestAndLastForExercise } from "@/lib/stats";
+import { bestAndLastForExercise, lastSessionForExercise } from "@/lib/stats";
 import { formatDate, formatWeight } from "@/lib/format";
 import type {
   Exercise,
@@ -21,18 +21,17 @@ import type {
 
 /** Build a single set entry from a template block + a chosen SetType.
  *  Only the fields meaningful for the type are populated. Used for both
- *  the "first time" template-default path and the "best ever" progressive
- *  overload path when the best was a weight-reps set. */
+ *  the "first time" template-default path and the "last session" pre-fill
+ *  path when we need a clean fallback. */
 function buildSetFromTemplate(
   te: WorkoutTemplate["exercises"][number],
-  type: SetType,
-  best?: { weight: number; reps: number }
+  type: SetType
 ): SetEntry {
   const set: SetEntry = { id: uid(), type };
   switch (type) {
     case "weight-reps":
-      set.weight = best?.weight ?? te.defaultWeight ?? 0;
-      set.reps = best?.reps ?? te.defaultReps;
+      set.weight = te.defaultWeight ?? 0;
+      set.reps = te.defaultReps;
       break;
     case "reps":
       set.reps = te.defaultReps;
@@ -51,6 +50,47 @@ function buildSetFromTemplate(
     case "weight-distance":
       set.weight = te.defaultWeight ?? 0;
       set.distance = te.defaultDistance;
+      break;
+  }
+  return set;
+}
+
+/** Re-shape a previously-logged set into the template's chosen SetType,
+ *  carrying across whatever fields are still meaningful for the new type.
+ *  Used for the "last time" pre-fill so the user sees their previous
+ *  weight × reps in the editor even if the template's UOM differs (we
+ *  coerce the shape rather than discard the data).
+ *
+ *  The set is given a fresh id so React keys stay unique across
+ *  re-renders. `rpe` and any unknown fields are dropped. */
+function adaptSetToType(prev: SetEntry, targetType: SetType): SetEntry {
+  const set: SetEntry = { id: uid(), type: targetType };
+  const w = prev.weight ?? 0;
+  const r = prev.reps ?? 0;
+  const d = prev.duration ?? 0;
+  const dist = prev.distance ?? 0;
+  switch (targetType) {
+    case "weight-reps":
+      set.weight = w;
+      set.reps = r;
+      break;
+    case "reps":
+      set.reps = r;
+      break;
+    case "weight-time":
+      set.weight = w;
+      set.duration = d;
+      break;
+    case "time":
+      set.duration = d;
+      break;
+    case "distance-time":
+      set.distance = dist;
+      set.duration = d;
+      break;
+    case "weight-distance":
+      set.weight = w;
+      set.distance = dist;
       break;
   }
   return set;
@@ -106,10 +146,13 @@ export default function LogPage() {
 
   // Convert a template into pre-filled WorkoutExercise blocks for the editor.
   // For each exercise:
-  //   - Pre-fill the sets with the user's all-time best weight × reps for
-  //     weight-reps sets (the heaviest single set they've ever logged).
-  //   - Add a "last time" footnote showing what they did most recently, so
-  //     they can compare and bump accordingly.
+  //   - Pre-fill the sets with the user's most recent session of that
+  //     exercise (any UOM), re-shaped into the template's chosen UOM so
+  //     the editor input grid matches. This is what the user expects:
+  //     "load up the last time I did this, not my all-time best".
+  //   - Add a footnote showing the previous session + their all-time best
+  //     for weight-reps exercises, so the heavy history reference is
+  //     preserved in the description even though the input is "last".
   //   - Fall back to template defaults if there's no usable history.
   //
   // The footnote is returned as a parallel map keyed by the block ID so the
@@ -135,13 +178,14 @@ export default function LogPage() {
         allWorkouts,
         te.exerciseId
       );
+      const lastSession = lastSessionForExercise(allWorkouts, te.exerciseId);
       const ex: Exercise | undefined = exercises.find(
         (e) => e.id === te.exerciseId
       );
       // Resolve the SetType for this template block in priority order:
-      //   1. The template's own per-block defaultSetType (added in this
-      //      revision; lets a "Push day" template override the exercise's
-      //      personal default to weight-reps for everything in it).
+      //   1. The template's own per-block defaultSetType (lets a "Push
+      //      day" template override the exercise's personal default to
+      //      weight-reps for everything in it).
       //   2. The exercise's defaultSetType (set on the Exercises page).
       //   3. Name-based heuristic.
       //   4. weight-reps fallback.
@@ -152,17 +196,35 @@ export default function LogPage() {
       let sets: SetEntry[];
       const blockId = uid();
 
-      // Progressive overload only applies to weight-reps exercises. For
-      // other UOMs (carries, planks, runs) the "best" concept is
-      // type-specific and not currently tracked per-set, so we just
-      // pre-fill with the template's defaults.
-      if (best && t === "weight-reps") {
+      if (lastSession.sets.length > 0) {
+        // Pre-fill from the user's most recent session of this exercise
+        // (any UOM). Take the first `te.defaultSets` entries verbatim,
+        // re-shaped into the template's chosen UOM so the editor input
+        // grid matches. If the user did more sets last time than the
+        // template asks for, the extras are dropped — the user can always
+        // tap "+" to add them. If they did fewer, we pad the rest with a
+        // clone of the last entry so the form is full and ready.
+        const taken = lastSession.sets.slice(0, te.defaultSets);
+        sets = taken.map((s) => adaptSetToType(s, t));
+        if (sets.length < te.defaultSets && sets.length > 0) {
+          const lastAdapted = sets[sets.length - 1];
+          while (sets.length < te.defaultSets) {
+            sets.push({ ...lastAdapted, id: uid() });
+          }
+        }
+      } else {
+        // First time for this exercise — fall back to template defaults
+        // for every set. The user can edit per-set before saving.
         sets = Array.from({ length: te.defaultSets }).map(() =>
-          buildSetFromTemplate(te, t, best)
+          buildSetFromTemplate(te, t)
         );
-        // Footnote: show the full sequence of weight-reps sets from the
-        // most recent workout (not just the top set), so the user has an
-        // immediate comparison of their entire previous session.
+      }
+
+      // Footnote: keep the "best ever" reference (history) in the
+      // description even though we now pre-fill from "last time". For
+      // weight-reps exercises the best/load distinction is meaningful;
+      // for non-weight-reps UOMs the "best" line is omitted.
+      if (best && t === "weight-reps" && lastSets.length > 0) {
         const lastSummary = lastSets
           .map((s) => `${formatWeight(s.weight)} × ${s.reps}`)
           .join(", ");
@@ -173,19 +235,16 @@ export default function LogPage() {
         if (lastIsBest) {
           footnotes[blockId] =
             `Best ever and last time: ${formatWeight(best.weight)} × ${best.reps}`;
-        } else if (lastSummary) {
+        } else {
           const datePart = lastDate ? ` (${formatDate(lastDate)})` : "";
           const bestPart = `best ever: ${formatWeight(best.weight)} × ${best.reps}`;
           footnotes[blockId] =
             `Last time${datePart}: ${lastSummary} · ${bestPart}`;
         }
-      } else {
-        // Either first time for this exercise, or non-weight-reps UOM.
-        // Build N copies of the template's pre-fill set with the chosen
-        // SetType. The user can edit per-set before saving.
-        sets = Array.from({ length: te.defaultSets }).map(() =>
-          buildSetFromTemplate(te, t)
-        );
+      } else if (best && t === "weight-reps") {
+        // No lastSets but we have a best (very old history?) — show best
+        // alone so the user still has a reference.
+        footnotes[blockId] = `Best ever: ${formatWeight(best.weight)} × ${best.reps}`;
       }
 
       blocks.push({
