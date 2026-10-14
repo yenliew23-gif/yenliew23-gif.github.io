@@ -151,7 +151,7 @@ export default function LogPage() {
   //     the editor input grid matches. This is what the user expects:
   //     "load up the last time I did this, not my all-time best".
   //   - Add a footnote showing the previous session + their all-time best
-  //     for weight-reps exercises, so the heavy history reference is
+  //     for weight-reps and reps-only exercises, so the heavy history reference is
   //     preserved in the description even though the input is "last".
   //   - Fall back to template defaults if there's no usable history.
   //
@@ -174,10 +174,6 @@ export default function LogPage() {
     const footnotes: Record<string, string> = {};
 
     appliedTemplate.exercises.forEach((te, idx) => {
-      const { best, lastSets, lastDate } = bestAndLastForExercise(
-        allWorkouts,
-        te.exerciseId
-      );
       const lastSession = lastSessionForExercise(allWorkouts, te.exerciseId);
       const ex: Exercise | undefined = exercises.find(
         (e) => e.id === te.exerciseId
@@ -192,6 +188,11 @@ export default function LogPage() {
       const t: SetType = te.defaultSetType
         ? te.defaultSetType
         : defaultSetTypeForExercise(ex);
+      const { best, lastSets, lastDate } = bestAndLastForExercise(
+        allWorkouts,
+        te.exerciseId,
+        t
+      );
 
       let sets: SetEntry[];
       const blockId = uid();
@@ -223,8 +224,19 @@ export default function LogPage() {
       // Footnote: keep the "best ever" reference (history) in the
       // description even though we now pre-fill from "last time". For
       // weight-reps exercises the best/load distinction is meaningful;
-      // for non-weight-reps UOMs the "best" line is omitted.
-      if (best && t === "weight-reps" && lastSets.length > 0) {
+      // reps-only exercises show most reps; other UOMs omit the line.
+      if (best && t === "reps" && lastSets.length > 0) {
+        const lastIsBest =
+          lastSets.length === 1 && lastSets[0].reps === best.reps;
+        if (lastIsBest) {
+          footnotes[blockId] = `Best ever and last time: ${best.reps} reps`;
+        } else {
+          const lastSummary = lastSets.map((s) => s.reps).join(", ");
+          const datePart = lastDate ? ` (${formatDate(lastDate)})` : "";
+          footnotes[blockId] =
+            `Last time${datePart}: ${lastSummary} reps · best ever: ${best.reps} reps`;
+        }
+      } else if (best && t === "weight-reps" && lastSets.length > 0) {
         const lastSummary = lastSets
           .map((s) => `${formatWeight(s.weight)} × ${s.reps}`)
           .join(", ");

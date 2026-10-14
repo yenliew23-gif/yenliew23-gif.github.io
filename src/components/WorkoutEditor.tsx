@@ -137,7 +137,31 @@ function emptyExerciseBlock(
     };
   }
 
-  const { best, lastSets, lastDate } = bestAndLastForExercise(workouts, ex.id);
+  const { best, lastSets, lastDate } = bestAndLastForExercise(
+    workouts,
+    ex.id,
+    defaultType
+  );
+  if (best && defaultType === "reps") {
+    // Reps-only: same footnote shape, counted in reps; pre-fill best reps.
+    let footnote: string | undefined;
+    if (lastSets.length === 1 && lastSets[0].reps === best.reps) {
+      footnote = `Best ever and last time: ${best.reps} reps`;
+    } else if (lastSets.length > 0) {
+      const lastSummary = lastSets.map((s) => s.reps).join(", ");
+      const datePart = lastDate ? ` (${formatDate(lastDate)})` : "";
+      footnote = `Last time${datePart}: ${lastSummary} reps · best ever: ${best.reps} reps`;
+    }
+    return {
+      block: {
+        id: uid(),
+        exerciseId: ex.id,
+        order: 0,
+        sets: [{ id: uid(), type: "reps", reps: best.reps }],
+      },
+      footnote,
+    };
+  }
   if (best) {
     // Build the footnote. Format the full last-workout set list so the user
     // can see the entire progression from their previous session (e.g. all

@@ -3,6 +3,7 @@ import type {
   ExerciseProgressPoint,
   MuscleGroup,
   SetEntry,
+  SetType,
   WeeklyVolume,
   Workout,
   WorkoutExercise,
@@ -271,12 +272,18 @@ export function personalRecordForType(
  * progression from their previous session — e.g. "60kg×10, 50kg×8, 50kg×8"
  * instead of just "60kg×10".
  *
+ * Pass `setType: "reps"` for reps-only exercises: `best` is then the set
+ * with the most reps, and both fields count reps from reps-only AND
+ * weight-reps sets (history may predate a UOM change). `weight` is 0 in
+ * that mode. Any other `setType` keeps the weight-reps behaviour.
+ *
  * Returns `null` / `[]` for each field when there's no usable history —
  * callers can detect that and fall back to template defaults.
  */
 export function bestAndLastForExercise(
   workouts: Workout[],
-  exerciseId: string
+  exerciseId: string,
+  setType: SetType = "weight-reps"
 ): {
   best: { weight: number; reps: number; date: string } | null;
   lastSets: { weight: number; reps: number; date: string }[];
@@ -292,15 +299,19 @@ export function bestAndLastForExercise(
   for (const w of workouts) {
     const ex = w.exercises.find((e) => e.exerciseId === exerciseId);
     if (!ex) continue;
-    const wrSets = ex.sets.filter(isWeightRepsSet);
+    const repsOnly = setType === "reps";
+    const wrSets = ex.sets.filter(repsOnly ? hasReps : isWeightRepsSet);
     if (wrSets.length === 0) continue;
 
     for (const s of wrSets) {
-      const w0 = s.weight ?? 0;
+      const w0 = repsOnly ? 0 : s.weight ?? 0;
       const r0 = s.reps ?? 0;
       const candidate = { weight: w0, reps: r0, date: w.date };
-      // Heaviest weight first; tie-break on more reps.
-      if (
+      // Reps-only: most reps wins. Otherwise heaviest weight first;
+      // tie-break on more reps.
+      if (repsOnly) {
+        if (!best || r0 > best.reps) best = candidate;
+      } else if (
         !best ||
         w0 > best.weight ||
         (w0 === best.weight && r0 > best.reps)
@@ -315,7 +326,7 @@ export function bestAndLastForExercise(
     if (lastDate === null || w.date > lastDate) {
       lastDate = w.date;
       lastSets = wrSets.map((s) => ({
-        weight: s.weight ?? 0,
+        weight: repsOnly ? 0 : s.weight ?? 0,
         reps: s.reps ?? 0,
         date: w.date,
       }));
