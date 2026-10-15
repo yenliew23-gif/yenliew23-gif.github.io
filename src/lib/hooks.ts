@@ -1,12 +1,14 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { startTransition, useEffect, useState } from "react";
 import {
   getExercises,
   getTemplates,
   getWorkouts,
   pullFromCloud,
   pushToCloud,
+  hasPushedAll,
+  markPushedAll,
   hasSeeded,
   markSeeded,
   addExercise,
@@ -80,18 +82,21 @@ export function useCloudSync(status: AuthStatus) {
     if (status !== "signed-in") return;
     let cancelled = false;
     (async () => {
+      const userId = (await getSession())?.user.id;
       const exs = getExercises();
       const wks = getWorkouts();
       const hasLocal = exs.length > 0 || wks.length > 0;
 
-      if (hasLocal) {
+      // Re-uploading every record on every app start flooded the network
+      // (and the auth lock) for a minute after opening the app. Do it once
+      // per device + account; after that the pending queue carries changes,
+      // and pullFromCloud flushes it first and keeps anything still queued.
+      if (hasLocal && userId && !hasPushedAll(userId)) {
         const result = await pushToCloud();
-        if (!cancelled && result.remaining === 0) {
-          await pullFromCloud();
-        }
-      } else {
-        await pullFromCloud();
+        if (cancelled || result.remaining > 0) return;
+        markPushedAll(userId);
       }
+      if (!cancelled) await pullFromCloud();
     })();
     return () => {
       cancelled = true;
@@ -219,4 +224,26 @@ export function seedIfEmpty() {
     }
   }
   markSeeded();
+}
+
+/**
+ * False on a page's first render, true shortly after it has painted. Long
+ * lists render a first screenful immediately and the rest once this flips,
+ * so tapping a tab shows the new page right away instead of waiting for
+ * every card to render (seconds on a slow phone). The flip runs as a
+ * transition, which React renders in interruptible slices.
+ */
+export function useDeferredReveal(): boolean {
+  const [ready, setReady] = useState(false);
+  useEffect(() => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const frame = requestAnimationFrame(() => {
+      timer = setTimeout(() => startTransition(() => setReady(true)), 0);
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+      clearTimeout(timer);
+    };
+  }, []);
+  return ready;
 }

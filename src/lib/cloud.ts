@@ -3,12 +3,16 @@
 import { getSupabase } from "./supabase";
 import type { Exercise, Workout, WorkoutTemplate } from "./types";
 
-/** Get the current Supabase user ID, or null if not signed in. */
+/** Get the current Supabase user ID, or null if not signed in.
+ *  Reads the locally stored session — `getUser()` would make a network
+ *  round-trip while holding the auth lock, serialising every write (and
+ *  every other Supabase call) behind it. RLS still enforces the real
+ *  identity server-side. */
 async function currentUserId(): Promise<string | null> {
   const sb = getSupabase();
   if (!sb) return null;
-  const { data } = await sb.auth.getUser();
-  return data.user?.id ?? null;
+  const { data } = await sb.auth.getSession();
+  return data.session?.user.id ?? null;
 }
 
 // ----- Row <-> domain mappers -----

@@ -19,6 +19,7 @@ const KEY_WORKOUTS = "gym.workouts.v1";
 const KEY_TEMPLATES = "gym.templates.v1";
 const KEY_SEEDED = "gym.seeded.v1";
 const KEY_PENDING = "gym.pending.v1";
+const KEY_PUSHED_ALL = "gym.pushed-all.v1";
 // Tombstones: IDs the user has deleted locally. Cloud sync must NEVER
 // resurrect these, even if the cloud delete op failed to flush. We keep the
 // list forever (well, until the cloud confirms the delete succeeded) — see
@@ -159,9 +160,9 @@ function pruneTombstones<K extends "exercises" | "workouts" | "templates">(
     setTombstones(t);
   }
 }
-function enqueue(op: PendingOp) {
+function enqueue(...ops: PendingOp[]) {
   // Supersede any earlier op on the same record.
-  setPending(compact([...getPending(), { ...op, qid: uid() }]));
+  setPending(compact([...getPending(), ...ops.map((op) => ({ ...op, qid: uid() }))]));
 }
 
 let flushing = false;
@@ -583,6 +584,7 @@ export function clearLocal() {
   window.localStorage.removeItem(KEY_TEMPLATES);
   window.localStorage.removeItem(KEY_SEEDED);
   window.localStorage.removeItem(KEY_TOMBSTONES);
+  window.localStorage.removeItem(KEY_PUSHED_ALL);
   window.dispatchEvent(new CustomEvent("gym:data-changed"));
 }
 
@@ -690,15 +692,23 @@ export async function pushToCloud(): Promise<{ pushed: number; remaining: number
   const exs = getExercises();
   const wks = getWorkouts();
   const tpls = getTemplates();
-  for (const ex of exs) {
-    enqueue({ op: "insert", table: "exercises", row: ex as unknown as Record<string, unknown> });
-  }
-  for (const w of wks) {
-    enqueue({ op: "insert", table: "workouts", row: w as unknown as Record<string, unknown> });
-  }
-  for (const t of tpls) {
-    enqueue({ op: "insert", table: "workout_templates", row: t as unknown as Record<string, unknown> });
-  }
+  // One queue write for the lot — enqueueing row by row re-serialises the
+  // whole queue each time.
+  enqueue(
+    ...exs.map((ex) => ({ op: "insert", table: "exercises", row: ex as unknown as Record<string, unknown> }) as const),
+    ...wks.map((w) => ({ op: "insert", table: "workouts", row: w as unknown as Record<string, unknown> }) as const),
+    ...tpls.map((t) => ({ op: "insert", table: "workout_templates", row: t as unknown as Record<string, unknown> }) as const)
+  );
   const { remaining } = await flushPending();
   return { pushed: exs.length + wks.length + tpls.length, remaining };
+}
+
+/** True once this device has pushed its whole local cache for `userId`.
+ *  After that, the pending queue alone carries every local change, so app
+ *  start only needs to flush it and pull. */
+export function hasPushedAll(userId: string): boolean {
+  return readJSON<string | null>(KEY_PUSHED_ALL, null) === userId;
+}
+export function markPushedAll(userId: string) {
+  writeJSON(KEY_PUSHED_ALL, userId);
 }

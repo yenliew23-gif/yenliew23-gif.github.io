@@ -9,7 +9,7 @@ import {
   type WorkoutTrend,
 } from "@/components/WorkoutCard";
 import { WorkoutDetailModal } from "@/components/WorkoutDetailModal";
-import { useExercises, useWorkouts } from "@/lib/hooks";
+import { useDeferredReveal, useExercises, useWorkouts } from "@/lib/hooks";
 import { formatWeekLabel } from "@/lib/format";
 import {
   isWeightRepsSet,
@@ -19,11 +19,15 @@ import {
 } from "@/lib/stats";
 import type { Workout } from "@/lib/types";
 
+/** Cards rendered before the rest of the list is revealed. */
+const INITIAL_CARDS = 8;
+
 export default function HistoryPage() {
   const workouts = useWorkouts();
   const exercises = useExercises();
   const [q, setQ] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const showAll = useDeferredReveal();
 
   const filtered = useMemo(() => {
     if (!q.trim()) return workouts;
@@ -47,13 +51,14 @@ export default function HistoryPage() {
 
   const grouped = useMemo(() => {
     const map = new Map<string, typeof filtered>();
-    for (const w of filtered) {
+    // First screenful only until the page has painted (see useDeferredReveal).
+    for (const w of showAll ? filtered : filtered.slice(0, INITIAL_CARDS)) {
       const k = weekStartOf(w.date);
       if (!map.has(k)) map.set(k, []);
       map.get(k)!.push(w);
     }
     return Array.from(map.entries()).sort((a, b) => b[0].localeCompare(a[0]));
-  }, [filtered]);
+  }, [filtered, showAll]);
 
   return (
     <PageShell>
@@ -90,7 +95,8 @@ export default function HistoryPage() {
                 <button
                   key={w.id}
                   onClick={() => setSelectedId(w.id)}
-                  className="block w-full text-left"
+                  // Skip layout/paint for cards scrolled out of view.
+                  className="block w-full text-left [content-visibility:auto] [contain-intrinsic-size:auto_132px]"
                 >
                   <WorkoutCard
                     workout={w}

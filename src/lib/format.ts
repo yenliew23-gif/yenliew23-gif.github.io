@@ -8,11 +8,11 @@
  * `weekStartOf`, etc.
  */
 export function formatLocalDate(d: Date): string {
-  return new Intl.DateTimeFormat("en-CA", {
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(d);
+  // Built by hand: constructing an Intl.DateTimeFormat per call was the
+  // single biggest cost when rendering the Home page on a phone.
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const dd = String(d.getDate()).padStart(2, "0");
+  return `${d.getFullYear()}-${mm}-${dd}`;
 }
 
 /** Today's date in local time, yyyy-mm-dd. */
@@ -38,23 +38,36 @@ export function formatWeight(w: number): string {
   return `${w % 1 === 0 ? w.toFixed(0) : w.toFixed(1)}kg`;
 }
 
+// Locale formatters are expensive to construct, and History renders a date
+// per card, so build each one once and reuse it.
+const formatters = new Map<string, Intl.DateTimeFormat>();
+function dateFormatter(options: Intl.DateTimeFormatOptions): Intl.DateTimeFormat {
+  const key = JSON.stringify(options);
+  let f = formatters.get(key);
+  if (!f) {
+    f = new Intl.DateTimeFormat(undefined, options);
+    formatters.set(key, f);
+  }
+  return f;
+}
+
 export function formatDate(iso: string): string {
   const d = new Date(iso + "T00:00:00");
-  return d.toLocaleDateString(undefined, {
+  return dateFormatter({
     weekday: "short",
     month: "short",
     day: "numeric",
-  });
+  }).format(d);
 }
 
 export function formatDateLong(iso: string): string {
   const d = new Date(iso + "T00:00:00");
-  return d.toLocaleDateString(undefined, {
+  return dateFormatter({
     weekday: "long",
     year: "numeric",
     month: "long",
     day: "numeric",
-  });
+  }).format(d);
 }
 
 export function formatRelativeDay(iso: string): string {
@@ -67,7 +80,7 @@ export function formatRelativeDay(iso: string): string {
 
 export function formatWeekLabel(weekStartISO: string): string {
   const d = new Date(weekStartISO + "T00:00:00");
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return dateFormatter({ month: "short", day: "numeric" }).format(d);
 }
 
 export function formatPct(pct: number, withSign = true): string {

@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 import clsx from "clsx";
 import { PageShell, PageHeader } from "@/components/PageHeader";
-import { useExercises, useWorkouts } from "@/lib/hooks";
+import { useDeferredReveal, useExercises, useWorkouts } from "@/lib/hooks";
 import { addExercise, deleteExercise, updateExercise } from "@/lib/storage";
 import { SET_TYPE_LABELS } from "@/lib/format";
 import type { Exercise, MuscleGroup, SetType } from "@/lib/types";
@@ -92,6 +92,9 @@ const COMMON_EXERCISES: { name: string; muscleGroup: MuscleGroup; defaultSetType
   { name: "Farmer's Carry", muscleGroup: "core", defaultSetType: "weight-time" },
 ];
 
+/** Exercise rows rendered before the rest of the list is revealed. */
+const INITIAL_ROWS = 12;
+
 export default function ExercisesPage() {
   const exercises = useExercises();
   const workouts = useWorkouts();
@@ -119,6 +122,8 @@ export default function ExercisesPage() {
     return map;
   }, [workouts]);
 
+  const showAll = useDeferredReveal();
+
   const grouped = useMemo(() => {
     const needle = q.trim().toLowerCase();
     const filtered = exercises.filter((e) =>
@@ -126,13 +131,18 @@ export default function ExercisesPage() {
     );
     const buckets: Record<string, Exercise[]> = {};
     for (const eg of MUSCLE_GROUPS) buckets[eg.value] = [];
-    for (const e of filtered) {
-      const key = e.archived ? "__archived" : e.muscleGroup;
-      buckets[key] = buckets[key] ?? [];
-      buckets[key].push(e);
+    // First screenful only until the page has painted (see useDeferredReveal).
+    let budget = showAll ? Infinity : INITIAL_ROWS;
+    for (const g of [...MUSCLE_GROUPS.map((eg) => eg.value), "__archived"]) {
+      for (const e of filtered) {
+        const key = e.archived ? "__archived" : e.muscleGroup;
+        if (key !== g || budget-- <= 0) continue;
+        buckets[key] = buckets[key] ?? [];
+        buckets[key].push(e);
+      }
     }
     return buckets;
-  }, [exercises, q]);
+  }, [exercises, q, showAll]);
 
   async function handleAdd() {
     if (!newName.trim()) return;
@@ -280,7 +290,8 @@ export default function ExercisesPage() {
                     <div
                       key={ex.id}
                       className={clsx(
-                        "flex items-center justify-between gap-2 px-3 py-2.5",
+                        // Skip layout/paint for rows scrolled out of view.
+                        "flex items-center justify-between gap-2 px-3 py-2.5 [content-visibility:auto] [contain-intrinsic-size:auto_57px]",
                         idx > 0 && "border-t border-zinc-800/80"
                       )}
                     >
