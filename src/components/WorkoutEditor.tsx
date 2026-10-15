@@ -3,10 +3,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import {
   Plus,
   Trash2,
   ChevronDown,
+  ChartLine,
   ChevronUp,
   Copy,
   Save,
@@ -28,6 +30,13 @@ import { addWorkout, deleteWorkout, getWorkout, updateWorkout, uid } from "@/lib
 import { useExercises, useWorkouts } from "@/lib/hooks";
 import { formatDate, formatDuration, formatSetSummary, formatWeight, SET_TYPE_SHORT, todayLocalISO } from "@/lib/format";
 import { bestAndLastForExercise } from "@/lib/stats";
+
+// Loaded only when opened, so the charting library stays out of the Log
+// page's initial download.
+const ExerciseHistoryModal = dynamic(
+  () => import("@/components/ExerciseHistoryModal").then((m) => m.ExerciseHistoryModal),
+  { ssr: false }
+);
 
 const SET_TYPES: SetType[] = [
   "weight-reps",
@@ -251,6 +260,7 @@ export function WorkoutEditor({
   // takes a moment on a slow phone; without this a second tap in that window
   // created a duplicate workout. A ref (not state) so the very next tap sees it.
   const createdRef = useRef(false);
+  const [historyFor, setHistoryFor] = useState<{ id: string; name: string } | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
   // hydrate from existing workout if editing
@@ -489,8 +499,21 @@ export function WorkoutEditor({
           >
             <div className="flex items-center justify-between">
               <div className="min-w-0">
-                <div className="truncate text-sm font-semibold text-zinc-100">
-                  {ex?.name ?? "(deleted exercise)"}
+                <div className="flex min-w-0 items-center gap-1">
+                  <span className="truncate text-sm font-semibold text-zinc-100">
+                    {ex?.name ?? "(deleted exercise)"}
+                  </span>
+                  {ex && (
+                    <button
+                      type="button"
+                      onClick={() => setHistoryFor({ id: ex.id, name: ex.name })}
+                      className="shrink-0 rounded-md p-1 text-emerald-400 hover:bg-zinc-800"
+                      aria-label={`${ex.name} history`}
+                      title="History & graph"
+                    >
+                      <ChartLine className="h-4 w-4" />
+                    </button>
+                  )}
                 </div>
                 <div className="text-xs text-zinc-500 capitalize">
                   {ex?.muscleGroup ?? ""} · {block.sets.length} sets
@@ -745,6 +768,14 @@ export function WorkoutEditor({
             Cancel
           </Link>
         </div>
+      )}
+
+      {historyFor && (
+        <ExerciseHistoryModal
+          exerciseId={historyFor.id}
+          exerciseName={historyFor.name}
+          onClose={() => setHistoryFor(null)}
+        />
       )}
     </div>
   );
