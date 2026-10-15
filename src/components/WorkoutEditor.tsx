@@ -247,6 +247,10 @@ export function WorkoutEditor({
     null
   );
   const [saving, setSaving] = useState(false);
+  // Set once a new workout has been created. Saving navigates away, which
+  // takes a moment on a slow phone; without this a second tap in that window
+  // created a duplicate workout. A ref (not state) so the very next tap sees it.
+  const createdRef = useRef(false);
   const [hydrated, setHydrated] = useState(false);
 
   // hydrate from existing workout if editing
@@ -398,7 +402,9 @@ export function WorkoutEditor({
         exercises: cleaned,
       });
     } else {
-      const created = addWorkout({
+      if (createdRef.current) return;
+      createdRef.current = true;
+      addWorkout({
         date,
         name: name || undefined,
         bodyweight: bw,
