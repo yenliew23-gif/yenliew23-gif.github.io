@@ -11,9 +11,6 @@ import {
   insertExerciseRemote,
   insertTemplateRemote,
   insertWorkoutRemote,
-  updateExerciseRemote,
-  updateTemplateRemote,
-  updateWorkoutRemote,
 } from "./cloud";
 import { getSupabase } from "./supabase";
 
@@ -69,10 +66,36 @@ type PendingOp =
   | { op: "update"; table: "workout_templates"; id: string; row: Record<string, unknown> }
   | { op: "delete"; table: "workout_templates"; id: string };
 
-function getPending(): PendingOp[] {
-  return readJSON<PendingOp[]>(KEY_PENDING, []);
+/** A queued op plus a unique queue id, so a flush can remove exactly the
+ *  ops that succeeded without clobbering ops enqueued while it ran. */
+type QueuedOp = PendingOp & { qid: string };
+
+/** ID of the record an op touches (deletes carry it; inserts/updates carry
+ *  the full row). */
+function recordId(op: PendingOp): string | undefined {
+  return op.op === "delete" ? op.id : (op.row.id as string | undefined);
 }
-function setPending(ops: PendingOp[]) {
+
+/** Keep only the latest op per record. Inserts and updates are both upserts
+ *  (see runOp), so the latest op alone brings the cloud up to date. */
+function compact<T extends PendingOp>(ops: T[]): T[] {
+  const latest = new Map<string, number>();
+  ops.forEach((op, i) => {
+    const id = recordId(op);
+    if (id) latest.set(`${op.table}:${id}`, i);
+  });
+  return ops.filter((op, i) => {
+    const id = recordId(op);
+    return !id || latest.get(`${op.table}:${id}`) === i;
+  });
+}
+
+function getPending(): QueuedOp[] {
+  const raw = readJSON<(PendingOp & { qid?: string })[]>(KEY_PENDING, []);
+  // Ops queued by older builds have no qid — assign one.
+  return raw.map((op) => (op.qid ? (op as QueuedOp) : { ...op, qid: uid() }));
+}
+function setPending(ops: QueuedOp[]) {
   writeJSON(KEY_PENDING, ops);
 }
 
@@ -137,15 +160,8 @@ function pruneTombstones<K extends "exercises" | "workouts" | "templates">(
   }
 }
 function enqueue(op: PendingOp) {
-  const ops = getPending();
-  // dedupe consecutive same-id operations on the same record
-  const filtered = ops.filter((p) => {
-    if (p.table !== op.table) return true;
-    if ("id" in p && "id" in op && p.id === op.id) return false;
-    return true;
-  });
-  filtered.push(op);
-  setPending(filtered);
+  // Supersede any earlier op on the same record.
+  setPending(compact([...getPending(), { ...op, qid: uid() }]));
 }
 
 let flushing = false;
@@ -160,53 +176,58 @@ const FLUSH_CONCURRENCY = 5;
  * Dispatch a single pending op through the Supabase client.
  * Returns null on success, or an error message on failure. Always resolves
  * (never throws) so it can be safely used with Promise.all/batch.
+ *
+ * Inserts and updates both go through the upsert path: an "update" of a
+ * record whose insert never reached the cloud must create it, not silently
+ * match zero rows.
  */
-async function runOp(op: PendingOp): Promise<string | null> {
-  const ac = new AbortController();
-  const timer = setTimeout(() => ac.abort(), OP_TIMEOUT_MS);
+async function dispatchOp(op: PendingOp): Promise<string | null> {
   try {
     if (op.table === "exercises") {
-      if (op.op === "insert") {
-        const r = await insertExerciseRemote(op.row as unknown as Exercise);
-        return r.error;
-      } else if (op.op === "update") {
-        const r = await updateExerciseRemote(op.row as unknown as Exercise);
-        return r.error;
-      } else {
-        const r = await deleteExerciseRemote(op.id);
-        return r.error;
-      }
+      const r =
+        op.op === "delete"
+          ? await deleteExerciseRemote(op.id)
+          : await insertExerciseRemote(op.row as unknown as Exercise);
+      return r.error;
     } else if (op.table === "workouts") {
-      if (op.op === "insert") {
-        const r = await insertWorkoutRemote(op.row as unknown as Workout);
-        return r.error;
-      } else if (op.op === "update") {
-        const r = await updateWorkoutRemote(op.row as unknown as Workout);
-        return r.error;
-      } else {
-        const r = await deleteWorkoutRemote(op.id);
-        return r.error;
-      }
+      const r =
+        op.op === "delete"
+          ? await deleteWorkoutRemote(op.id)
+          : await insertWorkoutRemote(op.row as unknown as Workout);
+      return r.error;
     } else {
-      if (op.op === "insert") {
-        const r = await insertTemplateRemote(op.row as unknown as WorkoutTemplate);
-        return r.error;
-      } else if (op.op === "update") {
-        const r = await updateTemplateRemote(op.row as unknown as WorkoutTemplate);
-        return r.error;
-      } else {
-        const r = await deleteTemplateRemote(op.id);
-        return r.error;
-      }
+      const r =
+        op.op === "delete"
+          ? await deleteTemplateRemote(op.id)
+          : await insertTemplateRemote(op.row as unknown as WorkoutTemplate);
+      return r.error;
     }
   } catch (e) {
-    const err = e as Error;
-    return err.name === "AbortError"
-      ? `Request timed out after ${OP_TIMEOUT_MS / 1000}s`
-      : err.message;
+    return (e as Error).message;
+  }
+}
+
+const TIMEOUT_ERROR = `Request timed out after ${OP_TIMEOUT_MS / 1000}s`;
+
+async function runOp(op: PendingOp): Promise<string | null> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<string>((resolve) => {
+    timer = setTimeout(() => resolve(TIMEOUT_ERROR), OP_TIMEOUT_MS);
+  });
+  try {
+    return await Promise.race([dispatchOp(op), timeout]);
   } finally {
     clearTimeout(timer);
   }
+}
+
+/** Errors that will fail every op alike (offline, signed out), as opposed to
+ *  a problem with one particular row. */
+function isConnectionError(err: string): boolean {
+  return (
+    err === TIMEOUT_ERROR ||
+    /failed to fetch|network|load failed|not signed in/i.test(err)
+  );
 }
 
 export async function flushPending(): Promise<{ remaining: number; lastError?: string }> {
@@ -219,45 +240,50 @@ export async function flushPending(): Promise<{ remaining: number; lastError?: s
     console.log(`[gym-tracker] flushPending: ${pendingBefore} pending (concurrency=${FLUSH_CONCURRENCY}, timeout=${OP_TIMEOUT_MS / 1000}s)`);
   }
   try {
-    let ops = getPending();
+    setPending(compact(getPending()));
     let lastError: string | undefined;
-    let safety = ops.length + 1;
-    while (ops.length > 0 && safety-- > 0) {
-      const slice = ops.slice(0, FLUSH_CONCURRENCY);
-      const results = await Promise.all(slice.map(runOp));
-      const remaining: PendingOp[] = [];
-      let madeProgress = false;
-      for (let i = 0; i < slice.length; i++) {
-        const err = results[i];
-        if (err) {
-          lastError = err;
-          remaining.push(slice[i]);
-        } else {
-          madeProgress = true;
+    // Every op gets one attempt per flush. A failing op stays queued but
+    // never blocks the ones behind it — one bad row (e.g. a schema
+    // mismatch on exercises) must not starve workouts. Ops enqueued while
+    // we're flushing are picked up by the next round of the outer loop.
+    const attempted = new Set<string>();
+    let offline = false;
+    while (!offline) {
+      const batch = getPending().filter((op) => !attempted.has(op.qid));
+      if (batch.length === 0) break;
+      for (let i = 0; i < batch.length; i += FLUSH_CONCURRENCY) {
+        const slice = batch.slice(i, i + FLUSH_CONCURRENCY);
+        slice.forEach((op) => attempted.add(op.qid));
+        const results = await Promise.all(slice.map(runOp));
+        const done = new Set(
+          slice.filter((_, j) => !results[j]).map((op) => op.qid)
+        );
+        for (const err of results) if (err) lastError = err;
+        // Remove only what succeeded, re-reading the queue so ops enqueued
+        // mid-flush (e.g. a workout saved while this ran) are never lost.
+        if (done.size > 0) {
+          setPending(getPending().filter((op) => !done.has(op.qid)));
+        } else if (results.every((err) => err && isConnectionError(err))) {
+          // Offline or signed out: every remaining op would fail the same
+          // way, so stop instead of timing out on each one.
+          offline = true;
+          break;
         }
       }
-      // Drop the processed slice from the head of the queue and re-append
-      // anything that failed so they get retried on the next pass.
-      const tail = ops.slice(slice.length);
-      ops = [...tail, ...remaining];
-      if (!madeProgress) break; // avoid infinite loop if all ops fail
-      // Persist the trimmed queue between batches so a partially-successful
-      // flush isn't lost if the user navigates away mid-flush.
-      setPending(ops);
     }
-    setPending(ops);
+    const remaining = getPending().length;
     // If anything is still pending, schedule a background retry. This means
     // a single failed push (e.g. transient network blip) doesn't leave the
     // queue stuck — we keep trying with backoff until it drains or the user
     // explicitly discards.
-    if (ops.length > 0) {
+    if (remaining > 0) {
       if (lastError) {
         // eslint-disable-next-line no-console
-        console.warn(`[gym-tracker] flushPending: ${ops.length} still failing — ${lastError}`);
+        console.warn(`[gym-tracker] flushPending: ${remaining} still failing — ${lastError}`);
       }
       scheduleBackgroundRetry();
     }
-    return { remaining: ops.length, lastError };
+    return { remaining, lastError };
   } finally {
     flushing = false;
   }
@@ -624,21 +650,33 @@ export async function pullFromCloud(): Promise<{
     new Set(templates.map((t) => t.id))
   );
 
-  exercises = liveExercises;
-  workouts = liveWorkouts;
-  templates = liveTemplates;
+  // Writes that haven't reached the cloud yet must survive the pull: keep
+  // the local version of every record with a pending insert/update, both
+  // in the cache and in the queue, so it keeps retrying.
+  const overlay = <T extends { id: string }>(
+    table: PendingOp["table"],
+    rows: T[]
+  ): T[] => {
+    const pending = new Map<string, T>();
+    for (const op of getPending()) {
+      if (op.table === table && op.op !== "delete") {
+        pending.set(op.row.id as string, op.row as unknown as T);
+      }
+    }
+    return [
+      ...rows.map((r) => pending.get(r.id) ?? r),
+      ...[...pending.values()].filter((p) => !rows.some((r) => r.id === p.id)),
+    ];
+  };
+  exercises = overlay("exercises", liveExercises);
+  workouts = overlay("workouts", liveWorkouts);
+  templates = overlay("workout_templates", liveTemplates);
 
   saveExercisesLocal(exercises);
   saveWorkoutsLocal(workouts);
   saveTemplatesLocal(templates);
-  // Cloud is now the source of truth for non-deleted records; clear pending
-  // inserts/updates that we've just confirmed by pulling. Deletes stay in the
-  // queue (they keep retrying) so the cloud eventually catches up.
-  setPending(
-    getPending().filter((op) => op.op === "delete")
-  );
-  // Best-effort: try to push the re-queued deletes immediately so the cloud
-  // catches up before the next pull.
+  // Best-effort: try to push anything still queued (including re-queued
+  // deletes) immediately so the cloud catches up before the next pull.
   flushPending().catch(() => {});
   return { exercises, workouts, templates };
 }

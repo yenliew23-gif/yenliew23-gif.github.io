@@ -26,7 +26,6 @@ import {
   formatDateLong,
   formatSetSummary,
   formatVolume,
-  formatWeight,
   pluralize,
 } from "@/lib/format";
 import type { SetEntry, SetType, Workout } from "@/lib/types";
@@ -170,44 +169,15 @@ export function WorkoutDetailModal({
                 workout,
                 block.exerciseId
               );
-              const previousTopSet = previousWorkout
-                ? topSetForExercise(previousWorkout, block.exerciseId)
-                : undefined;
-              const currentTopSet = topSetForSets(block.sets);
-              // Full sequence of weight-reps sets from the previous workout
-              // containing this exercise, so the comparison line below can
-              // show the entire previous session (not just the top set).
+              // Full sequence of sets from the previous workout containing
+              // this exercise, whatever their type, so the "last time" line
+              // can show the entire previous session (not just the top set).
               const previousSets = previousWorkout
-                ? previousWorkout.exercises
-                    .find((b) => b.exerciseId === block.exerciseId)
-                    ?.sets.filter(isWeightRepsSet) ?? []
+                ? previousWorkout.exercises.find(
+                    (b) => b.exerciseId === block.exerciseId
+                  )?.sets ?? []
                 : [];
-              // Total weight-reps volume for this exercise in the current
-              // workout — used by the comparison line below to decide
-              // improved/regressed/same. Heavier volume OR heavier top set
-              // OR more reps → improved; the opposite → regressed.
-              const currentVolume = block.sets
-                .filter(isWeightRepsSet)
-                .reduce((s, set) => s + (set.weight ?? 0) * (set.reps ?? 0), 0);
-              const previousVolume = previousSets.reduce(
-                (s, set) => s + (set.weight ?? 0) * (set.reps ?? 0),
-                0
-              );
-              const currentReps = block.sets
-                .filter(isWeightRepsSet)
-                .reduce((s, set) => s + (set.reps ?? 0), 0);
-              const previousReps = previousSets.reduce(
-                (s, set) => s + (set.reps ?? 0),
-                0
-              );
-              const blockTrend: Trend = computeBlockTrend({
-                currentMax: currentTopSet?.weight ?? 0,
-                previousMax: previousTopSet?.weight ?? 0,
-                currentVolume,
-                previousVolume,
-                currentReps,
-                previousReps,
-              });
+              const blockTrend: Trend = computeBlockTrend(block.sets, previousSets);
               return (
                 <section
                   key={block.id}
@@ -222,7 +192,7 @@ export function WorkoutDetailModal({
                         {ex?.muscleGroup ?? ""}
                       </div>
                     </div>
-                    {currentTopSet && previousTopSet && blockTrend !== "none" && (
+                    {blockTrend !== "none" && (
                       <TrendPill trend={blockTrend} compact />
                     )}
                   </div>
@@ -281,9 +251,8 @@ export function WorkoutDetailModal({
                     })}
                   </div>
 
-                  {previousSets.length > 0 && currentTopSet && (
+                  {previousSets.length > 0 && block.sets.length > 0 && (
                     <LastTimeLine
-                      current={currentTopSet}
                       previousSets={previousSets}
                       trend={blockTrend}
                     />
@@ -308,56 +277,94 @@ export function WorkoutDetailModal({
 
 type Trend = "up" | "down" | "flat" | "none";
 
-/** Single-score representation of a set, type-aware (mirrors the per-type
- *  scoring in `topSetForExercise` so we can compare two sets of the same
- *  type and tell which one is "better"). */
-function scoreSet(s: SetEntry): number {
-  const t = s.type ?? "weight-reps";
-  switch (t) {
-    case "reps":
-      return s.reps ?? 0;
-    case "weight-time":
-    case "weight-distance":
-      return s.weight ?? 0;
-    case "time":
-      return s.duration ?? 0;
-    case "distance-time":
-      return s.distance ?? 0;
-    case "weight-reps":
-    default:
-      // weight primary, reps tiebreaker
-      return (s.weight ?? 0) * 1000 + (s.reps ?? 0);
+type SetField = "weight" | "reps" | "duration" | "distance";
+
+/** Every field a set of the given type records. Used to find what two
+ *  different UOMs have in common (e.g. weight-reps vs reps → reps). */
+const SET_FIELDS: Record<SetType, SetField[]> = {
+  "weight-reps": ["weight", "reps"],
+  reps: ["reps"],
+  "weight-time": ["weight", "duration"],
+  time: ["duration"],
+  "distance-time": ["distance", "duration"],
+  "weight-distance": ["weight", "distance"],
+};
+
+/** The fields that rank two sets of the same type, most significant first. */
+const RANK_FIELDS: Record<SetType, SetField[]> = {
+  "weight-reps": ["weight", "reps"],
+  reps: ["reps"],
+  "weight-time": ["weight", "duration"],
+  time: ["duration"],
+  "distance-time": ["distance"],
+  "weight-distance": ["distance"],
+};
+
+/** Differences at or below these count as noise ("same"), not progress. */
+const FIELD_DEAD_ZONE: Record<SetField, number> = {
+  weight: 0.5, // kg
+  reps: 0,
+  duration: 1, // s
+  distance: 1, // m
+};
+
+function setTypeOf(s: SetEntry): SetType {
+  return s.type ?? "weight-reps";
+}
+
+/** The fields to compare a block of `cur`-type sets against a previous
+ *  block of `prev`-type sets: the type's own ranking when they match,
+ *  otherwise whatever field both UOMs record (empty if none). */
+function comparisonFields(cur: SetType, prev: SetType): SetField[] {
+  if (cur === prev) return RANK_FIELDS[cur];
+  return SET_FIELDS[cur].filter((f) => SET_FIELDS[prev].includes(f));
+}
+
+/** Type-aware score of a set: the values of `fields`, most significant
+ *  first, compared lexicographically. Defaults to the set's own ranking. */
+function scoreSet(
+  s: SetEntry,
+  fields: SetField[] = RANK_FIELDS[setTypeOf(s)]
+): number[] {
+  return fields.map((f) => s[f] ?? 0);
+}
+
+function compareScores(a: number[], b: number[]): number {
+  for (let i = 0; i < Math.min(a.length, b.length); i++) {
+    if (a[i] !== b[i]) return a[i] - b[i];
   }
+  return 0;
 }
 
 /** "Best" set in a list — the one with the highest type-aware score. */
-function topSetForSets(sets: SetEntry[]): SetEntry | undefined {
+function topSetForSets(
+  sets: SetEntry[],
+  fields?: SetField[]
+): SetEntry | undefined {
   if (sets.length === 0) return undefined;
-  return sets.reduce((best, s) => (scoreSet(s) > scoreSet(best) ? s : best));
+  return sets.reduce((best, s) =>
+    compareScores(scoreSet(s, fields), scoreSet(best, fields)) > 0 ? s : best
+  );
 }
 
-/** Compare two top sets and tell us whether the current one improved.
- *  - "none" if either side is missing
- *  - "flat" if the two sets are of different types (or equal score)
+/** Compare two top sets on `fields`, most significant first. A field only
+ *  decides the result when it moved beyond its dead-zone, so e.g. a
+ *  weight-time set at the same weight is judged on duration.
+ *  - "none" if either side is missing or there's nothing to compare on
+ *  - "flat" if no field moved beyond its dead-zone
  *  - "up" / "down" otherwise
  */
 function compareTopSets(
   current: SetEntry | undefined,
-  previous: SetEntry | undefined
+  previous: SetEntry | undefined,
+  fields: SetField[]
 ): Trend {
-  if (!current || !previous) return "none";
-  const curType: SetType = current.type ?? "weight-reps";
-  const prevType: SetType = previous.type ?? "weight-reps";
-  if (curType !== prevType) return "flat";
-
-  const diff = scoreSet(current) - scoreSet(previous);
-  if (diff === 0) return "flat";
-  // Use a per-type "flat" threshold so a 1-second / 1m / 1-rep noise
-  // doesn't trigger a "regressed" pill on tiny variance.
-  let flatThreshold = 0.5;
-  if (curType === "weight-reps") flatThreshold = 1000; // ≤1kg or weight-tied counts as flat
-  if (Math.abs(diff) < flatThreshold) return "flat";
-  return diff > 0 ? "up" : "down";
+  if (!current || !previous || fields.length === 0) return "none";
+  for (const f of fields) {
+    const diff = (current[f] ?? 0) - (previous[f] ?? 0);
+    if (Math.abs(diff) > FIELD_DEAD_ZONE[f]) return diff > 0 ? "up" : "down";
+  }
+  return "flat";
 }
 
 function trendClasses(trend: Trend) {
@@ -415,22 +422,18 @@ function TrendPill({ trend, compact = false }: { trend: Trend; compact?: boolean
 }
 
 function LastTimeLine({
-  current,
   previousSets,
   trend,
 }: {
-  current: SetEntry;
-  /** All weight-reps sets from the previous workout, in order. We render
-   *  the full list (e.g. "20kg × 8, 20kg × 8, 20kg × 6") so the user can
-   *  see the entire previous session, not just the top single set. */
+  /** All sets from the previous workout, in order. We render the full list
+   *  in each set's own format (e.g. "20kg × 8, 20kg × 6" or "32kg × 1:00")
+   *  so the user can see the entire previous session, not just the top set. */
   previousSets: SetEntry[];
   trend: Trend;
 }) {
   const c = trendClasses(trend);
   const flat = trend === "flat" || trend === "none";
-  const summary = previousSets
-    .map((s) => `${formatWeight(s.weight ?? 0)} × ${s.reps ?? 0}`)
-    .join(", ");
+  const summary = previousSets.map(formatSetSummary).join(", ");
   return (
     <div className="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
       <span className={c.icon}>{trendIcon(trend, "h-3.5 w-3.5")}</span>
@@ -455,54 +458,82 @@ function LastTimeLine({
   );
 }
 
+/** Turn a numeric delta into a trend, ignoring changes within `dead`. */
+function deltaTrend(delta: number, dead: number): Trend {
+  if (delta > dead) return "up";
+  if (delta < -dead) return "down";
+  return "flat";
+}
+
 /**
- * Compare an exercise block (current) against its previous occurrence across
- * three signals: heaviest single set, total weight-reps volume, total reps.
+ * Compare an exercise block (current) against its previous occurrence,
+ * type-aware:
  *
- *   - "up"   : any of the three is clearly higher (with a small dead-zone
- *              to avoid 1–2kg noise)
+ *   - weight-reps : top set (weight, then reps), total volume, total reps
+ *   - reps        : best set and total reps
+ *   - weight-time : top set by weight, then duration
+ *   - time        : longest duration
+ *   - distance-*  : longest distance
+ *
+ * When the two sessions used different UOMs we compare on the field they
+ * share (weight-reps vs reps → reps, weight-time vs time → duration, …).
+ *
+ *   - "up"   : any signal is clearly higher (with a small dead-zone)
  *   - "down" : any is clearly lower
  *   - "flat" : none moved beyond the dead-zone
- *   - "none" : no prior workout to compare against
+ *   - "none" : no prior sets, or nothing in common to compare on
  *
  * We use OR (not weighted) so that, for example, dropping one rep at the
  * same weight doesn't hide a heavier top set, and adding a set at a lower
- * weight doesn't hide a rep count increase.
+ * weight doesn't hide a rep count increase. Mixed signals defer to the
+ * aggregate (volume, else total reps).
  */
-function computeBlockTrend(opts: {
-  currentMax: number;
-  previousMax: number;
-  currentVolume: number;
-  previousVolume: number;
-  currentReps: number;
-  previousReps: number;
-}): Trend {
-  const { currentMax, previousMax, currentVolume, previousVolume, currentReps, previousReps } = opts;
-  // No prior → can't tell.
-  if (
-    previousMax === 0 &&
-    previousVolume === 0 &&
-    previousReps === 0
-  ) {
-    return "none";
+function computeBlockTrend(
+  currentSets: SetEntry[],
+  previousSets: SetEntry[]
+): Trend {
+  if (currentSets.length === 0 || previousSets.length === 0) return "none";
+  const curType = setTypeOf(currentSets[0]);
+  const prevType = setTypeOf(previousSets[0]);
+  const fields = comparisonFields(curType, prevType);
+  if (fields.length === 0) return "none";
+
+  // Only sets that actually record the compared fields take part, so a
+  // stray set of another type in the same block can't skew the result.
+  const records = (s: SetEntry) =>
+    fields.every((f) => SET_FIELDS[setTypeOf(s)].includes(f));
+  const cur = currentSets.filter(records);
+  const prev = previousSets.filter(records);
+  if (cur.length === 0 || prev.length === 0) return "none";
+
+  const signals: Trend[] = [
+    compareTopSets(topSetForSets(cur, fields), topSetForSets(prev, fields), fields),
+  ];
+  let aggregate: Trend | undefined;
+
+  if (curType === "weight-reps" && prevType === "weight-reps") {
+    const volume = (sets: SetEntry[]) =>
+      sets.reduce((s, set) => s + (set.weight ?? 0) * (set.reps ?? 0), 0);
+    aggregate = deltaTrend(volume(cur) - volume(prev), 0.5);
+    signals.push(aggregate);
   }
-  const dMax = currentMax - previousMax;
-  const dVol = currentVolume - previousVolume;
-  const dReps = currentReps - previousReps;
-  // Dead-zone: ignore sub-0.5kg weight jitter and ±1 rep noise so we don't
-  // flag a session as up/down from meaningless drift.
-  const MAX_DEAD = 0.5;
-  const REP_DEAD = 1;
-  const isUp =
-    dMax > MAX_DEAD || dVol > MAX_DEAD || dReps > REP_DEAD;
-  const isDown =
-    dMax < -MAX_DEAD || dVol < -MAX_DEAD || dReps < -REP_DEAD;
+  if (fields.includes("reps")) {
+    const reps = (sets: SetEntry[]) =>
+      sets.reduce((s, set) => s + (set.reps ?? 0), 0);
+    // ±1 rep across a whole session is noise.
+    const repsTrend = deltaTrend(reps(cur) - reps(prev), 1);
+    aggregate ??= repsTrend;
+    signals.push(repsTrend);
+  }
+
+  const isUp = signals.includes("up");
+  const isDown = signals.includes("down");
   if (isUp && !isDown) return "up";
   if (isDown && !isUp) return "down";
   if (isUp && isDown) {
     // Mixed signals (e.g. heavier top set but fewer total reps from a shorter
-    // session). Prefer "flat" unless the volume delta is unambiguous.
-    return Math.abs(dVol) > MAX_DEAD ? (dVol > 0 ? "up" : "down") : "flat";
+    // session). Prefer "flat" unless the aggregate delta is unambiguous.
+    return aggregate && aggregate !== "flat" ? aggregate : "flat";
   }
   return "flat";
 }
@@ -531,24 +562,4 @@ function findPreviousWorkoutForExercise(
       return b.createdAt - a.createdAt;
     });
   return candidates[0] ?? null;
-}
-
-/**
- * Pick the "best" set for an exercise in a workout, in a way that makes sense
- * for the set's type:
- *  - weight-reps: heaviest weight (ties broken by more reps)
- *  - reps: most reps
- *  - weight-time / weight-distance: heaviest weight
- *  - time: longest duration
- *  - distance-time: longest distance
- *
- * Returns the set itself so the caller can format it with `formatSetSummary`.
- */
-function topSetForExercise(
-  workout: Workout,
-  exerciseId: string
-): SetEntry | undefined {
-  const block = workout.exercises.find((b) => b.exerciseId === exerciseId);
-  if (!block || block.sets.length === 0) return undefined;
-  return topSetForSets(block.sets);
 }

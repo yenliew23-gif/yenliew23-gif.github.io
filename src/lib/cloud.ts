@@ -129,18 +129,6 @@ export async function insertExerciseRemote(
   return { error: error?.message ?? null };
 }
 
-export async function updateExerciseRemote(
-  ex: Exercise
-): Promise<{ error: string | null }> {
-  const sb = getSupabase();
-  if (!sb) return { error: "not configured" };
-  const { error } = await sb
-    .from("exercises")
-    .update(exerciseToRow(ex))
-    .eq("id", ex.id);
-  return { error: error?.message ?? null };
-}
-
 export async function deleteExerciseRemote(
   id: string
 ): Promise<{ error: string | null }> {
@@ -159,18 +147,6 @@ export async function insertWorkoutRemote(
   if (!userId) return { error: "Not signed in" };
   const row = { ...workoutToRow(w), user_id: userId };
   const { error } = await sb.from("workouts").upsert(row, { onConflict: "id" });
-  return { error: error?.message ?? null };
-}
-
-export async function updateWorkoutRemote(
-  w: Workout
-): Promise<{ error: string | null }> {
-  const sb = getSupabase();
-  if (!sb) return { error: "not configured" };
-  const { error } = await sb
-    .from("workouts")
-    .update(workoutToRow(w))
-    .eq("id", w.id);
   return { error: error?.message ?? null };
 }
 
@@ -237,18 +213,6 @@ export async function insertTemplateRemote(
   if (!userId) return { error: "Not signed in" };
   const row = { ...templateToRow(t), user_id: userId };
   const { error } = await sb.from("workout_templates").upsert(row, { onConflict: "id" });
-  return { error: error?.message ?? null };
-}
-
-export async function updateTemplateRemote(
-  t: WorkoutTemplate
-): Promise<{ error: string | null }> {
-  const sb = getSupabase();
-  if (!sb) return { error: "not configured" };
-  const { error } = await sb
-    .from("workout_templates")
-    .update(templateToRow(t))
-    .eq("id", t.id);
   return { error: error?.message ?? null };
 }
 
