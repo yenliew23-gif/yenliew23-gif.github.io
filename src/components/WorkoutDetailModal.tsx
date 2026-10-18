@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import dynamic from "next/dynamic";
 import clsx from "clsx";
 import {
   ArrowLeft,
+  ChartLine,
   Pencil,
   Trophy,
   TrendingDown,
@@ -30,6 +32,13 @@ import {
 } from "@/lib/format";
 import type { SetEntry, SetType, Workout } from "@/lib/types";
 
+// Loaded only when opened, so the charting library stays out of the initial
+// download of the pages that show this modal.
+const ExerciseHistoryModal = dynamic(
+  () => import("@/components/ExerciseHistoryModal").then((m) => m.ExerciseHistoryModal),
+  { ssr: false }
+);
+
 /**
  * A modal that shows the full detail of a workout, with an edit toggle.
  * Uses a slide-up sheet on small screens, centered dialog on larger ones.
@@ -45,6 +54,7 @@ export function WorkoutDetailModal({
   const exercises = useExercises();
   const [editing, setEditing] = useState(false);
   const [mounted, setMounted] = useState(false);
+  const [historyFor, setHistoryFor] = useState<{ id: string; name: string } | null>(null);
 
   useEffect(() => setMounted(true), []);
 
@@ -89,187 +99,210 @@ export function WorkoutDetailModal({
   }
 
   return (
-    <div
-      className="fixed inset-0 z-40 flex items-end justify-center bg-black/60 sm:items-center"
-      onClick={onClose}
-    >
+    <>
       <div
-        className="flex max-h-[90dvh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl border border-zinc-800 bg-zinc-950 shadow-2xl sm:rounded-3xl"
-        onClick={(e) => e.stopPropagation()}
-        style={{
-          transform: mounted ? "translateY(0)" : "translateY(20px)",
-          opacity: mounted ? 1 : 0,
-          transition: "transform 200ms ease, opacity 200ms ease",
-        }}
+        className="fixed inset-0 z-40 flex items-end justify-center bg-black/60 sm:items-center"
+        onClick={onClose}
       >
-        <div className="flex shrink-0 items-center justify-between border-b border-zinc-800 px-4 py-3">
-          <div className="min-w-0">
-            <h2 className="truncate text-base font-semibold text-zinc-100">
-              {workout.name || "Workout"}
-            </h2>
-            <p className="truncate text-xs text-zinc-400">
-              {formatDateLong(workout.date)}
-            </p>
+        <div
+          className="flex max-h-[90dvh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl border border-zinc-800 bg-zinc-950 shadow-2xl sm:rounded-3xl"
+          onClick={(e) => e.stopPropagation()}
+          style={{
+            transform: mounted ? "translateY(0)" : "translateY(20px)",
+            opacity: mounted ? 1 : 0,
+            transition: "transform 200ms ease, opacity 200ms ease",
+          }}
+        >
+          <div className="flex shrink-0 items-center justify-between border-b border-zinc-800 px-4 py-3">
+            <div className="min-w-0">
+              <h2 className="truncate text-base font-semibold text-zinc-100">
+                {workout.name || "Workout"}
+              </h2>
+              <p className="truncate text-xs text-zinc-400">
+                {formatDateLong(workout.date)}
+              </p>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setEditing(true)}
+                className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-800"
+                aria-label="Edit"
+              >
+                <Pencil className="h-5 w-5" />
+              </button>
+              <button
+                onClick={onClose}
+                className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-800"
+                aria-label="Close"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setEditing(true)}
-              className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-800"
-              aria-label="Edit"
-            >
-              <Pencil className="h-5 w-5" />
-            </button>
-            <button
-              onClick={onClose}
-              className="rounded-md p-1.5 text-zinc-400 hover:bg-zinc-800"
-              aria-label="Close"
-            >
-              <X className="h-5 w-5" />
-            </button>
-          </div>
-        </div>
 
-        <div className="flex-1 overflow-y-auto px-4 py-4">
-          <div className="space-y-4">
-            <section className="grid grid-cols-3 gap-2 text-center">
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-3">
-                <div className="text-[10px] uppercase tracking-wide text-zinc-400">Sets</div>
-                <div className="mt-1 text-lg font-semibold tabular-nums">
-                  {totalSets(workout)}
+          <div className="flex-1 overflow-y-auto px-4 py-4">
+            <div className="space-y-4">
+              <section className="grid grid-cols-3 gap-2 text-center">
+                <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-3">
+                  <div className="text-[10px] uppercase tracking-wide text-zinc-400">Sets</div>
+                  <div className="mt-1 text-lg font-semibold tabular-nums">
+                    {totalSets(workout)}
+                  </div>
                 </div>
-              </div>
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-3">
-                <div className="text-[10px] uppercase tracking-wide text-zinc-400">Reps</div>
-                <div className="mt-1 text-lg font-semibold tabular-nums">
-                  {totalReps(workout)}
+                <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-3">
+                  <div className="text-[10px] uppercase tracking-wide text-zinc-400">Reps</div>
+                  <div className="mt-1 text-lg font-semibold tabular-nums">
+                    {totalReps(workout)}
+                  </div>
                 </div>
-              </div>
-              <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-3">
-                <div className="text-[10px] uppercase tracking-wide text-zinc-400">Volume</div>
-                <div className="mt-1 text-lg font-semibold tabular-nums text-emerald-400">
-                  {formatVolume(totalVolume(workout))}
+                <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-3">
+                  <div className="text-[10px] uppercase tracking-wide text-zinc-400">Volume</div>
+                  <div className="mt-1 text-lg font-semibold tabular-nums text-emerald-400">
+                    {formatVolume(totalVolume(workout))}
+                  </div>
                 </div>
-              </div>
-            </section>
-
-            {workout.bodyweight && (
-              <section className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-3 text-sm text-zinc-300">
-                Bodyweight: <span className="font-semibold">{workout.bodyweight} kg</span>
               </section>
-            )}
 
-            {workout.exercises.map((block) => {
-              const ex = exerciseById(exercises, block.exerciseId);
-              const series = progressByExercise(workouts, block.exerciseId);
-              const lastIdx = series.findIndex((p) => p.date === workout.date);
-              const prior = lastIdx > 0 ? series[lastIdx - 1] : undefined;
-              // Find the actual previous workout containing this exercise
-              const previousWorkout = findPreviousWorkoutForExercise(
-                workouts,
-                workout,
-                block.exerciseId
-              );
-              // Full sequence of sets from the previous workout containing
-              // this exercise, whatever their type, so the "last time" line
-              // can show the entire previous session (not just the top set).
-              const previousSets = previousWorkout
-                ? previousWorkout.exercises.find(
-                    (b) => b.exerciseId === block.exerciseId
-                  )?.sets ?? []
-                : [];
-              const blockTrend: Trend = computeBlockTrend(block.sets, previousSets);
-              return (
-                <section
-                  key={block.id}
-                  className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4"
-                >
-                  <div className="flex items-center justify-between">
-                    <div>
-                      <div className="text-sm font-semibold text-zinc-100">
-                        {ex?.name ?? "(deleted)"}
-                      </div>
-                      <div className="text-xs capitalize text-zinc-500">
-                        {ex?.muscleGroup ?? ""}
-                      </div>
-                    </div>
-                    {blockTrend !== "none" && (
-                      <TrendPill trend={blockTrend} compact />
-                    )}
-                  </div>
-
-                  {/* Persistent exercise-level note (form cues, setup, etc.)
-                      from the Exercises page. Distinct from block.note which is
-                      the per-workout session comment. Rendered in a muted style
-                      so it reads as "background reference" rather than today's
-                      log. */}
-                  {ex?.notes && (
-                    <div className="mt-2 whitespace-pre-wrap rounded-lg border border-zinc-800/60 bg-zinc-950/30 px-3 py-2 text-xs text-zinc-400">
-                      <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-                        Note
-                      </span>
-                      <div className="mt-0.5">{ex.notes}</div>
-                    </div>
-                  )}
-
-                  {block.note && (
-                    <div className="mt-2 whitespace-pre-wrap rounded-lg bg-zinc-950/40 px-3 py-2 text-xs text-zinc-300">
-                      {block.note}
-                    </div>
-                  )}
-
-                  <div className="mt-3 space-y-1.5">
-                    {block.sets.map((s, idx) => {
-                      const showE1RM = isWeightRepsSet(s);
-                      const e1rm = showE1RM
-                        ? estimated1RM(s.weight ?? 0, s.reps ?? 0)
-                        : 0;
-                      return (
-                        <div
-                          key={s.id}
-                          className="flex items-center justify-between rounded-lg bg-zinc-950/60 px-3 py-2 text-sm"
-                        >
-                          <div className="flex min-w-0 items-center gap-3">
-                            <span className="w-5 text-center text-zinc-500">
-                              {idx + 1}
-                            </span>
-                            <span className="truncate tabular-nums text-zinc-100">
-                              {formatSetSummary(s)}
-                            </span>
-                          </div>
-                          <div className="flex shrink-0 items-center gap-1.5 text-xs text-zinc-500">
-                            {showE1RM ? (
-                              <span className="tabular-nums">
-                                e1RM {Math.round(e1rm * 2) / 2}kg
-                              </span>
-                            ) : null}
-                            {showE1RM && prior && (s.weight ?? 0) > prior.maxWeight && (
-                              <Trophy className="h-3.5 w-3.5 text-amber-400" />
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {previousSets.length > 0 && block.sets.length > 0 && (
-                    <LastTimeLine
-                      previousSets={previousSets}
-                      trend={blockTrend}
-                    />
-                  )}
+              {workout.bodyweight && (
+                <section className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-3 text-sm text-zinc-300">
+                  Bodyweight: <span className="font-semibold">{workout.bodyweight} kg</span>
                 </section>
-              );
-            })}
+              )}
 
-            {workout.note && (
-              <section className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4 text-sm text-zinc-300">
-                {workout.note}
-              </section>
-            )}
+              {workout.exercises.map((block) => {
+                const ex = exerciseById(exercises, block.exerciseId);
+                const series = progressByExercise(workouts, block.exerciseId);
+                const lastIdx = series.findIndex((p) => p.date === workout.date);
+                const prior = lastIdx > 0 ? series[lastIdx - 1] : undefined;
+                // Find the actual previous workout containing this exercise
+                const previousWorkout = findPreviousWorkoutForExercise(
+                  workouts,
+                  workout,
+                  block.exerciseId
+                );
+                // Full sequence of sets from the previous workout containing
+                // this exercise, whatever their type, so the "last time" line
+                // can show the entire previous session (not just the top set).
+                const previousSets = previousWorkout
+                  ? previousWorkout.exercises.find(
+                      (b) => b.exerciseId === block.exerciseId
+                    )?.sets ?? []
+                  : [];
+                const blockTrend: Trend = computeBlockTrend(block.sets, previousSets);
+                return (
+                  <section
+                    key={block.id}
+                    className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4"
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="min-w-0">
+                        <div className="flex min-w-0 items-center gap-1">
+                          <span className="truncate text-sm font-semibold text-zinc-100">
+                            {ex?.name ?? "(deleted)"}
+                          </span>
+                          {ex && (
+                            <button
+                              type="button"
+                              onClick={() => setHistoryFor({ id: ex.id, name: ex.name })}
+                              className="shrink-0 rounded-md p-1 text-emerald-400 hover:bg-zinc-800"
+                              aria-label={`${ex.name} history`}
+                              title="History & graph"
+                            >
+                              <ChartLine className="h-4 w-4" />
+                            </button>
+                          )}
+                        </div>
+                        <div className="text-xs capitalize text-zinc-500">
+                          {ex?.muscleGroup ?? ""}
+                        </div>
+                      </div>
+                      {blockTrend !== "none" && (
+                        <TrendPill trend={blockTrend} compact />
+                      )}
+                    </div>
+
+                    {/* Persistent exercise-level note (form cues, setup, etc.)
+                        from the Exercises page. Distinct from block.note which is
+                        the per-workout session comment. Rendered in a muted style
+                        so it reads as "background reference" rather than today's
+                        log. */}
+                    {ex?.notes && (
+                      <div className="mt-2 whitespace-pre-wrap rounded-lg border border-zinc-800/60 bg-zinc-950/30 px-3 py-2 text-xs text-zinc-400">
+                        <span className="text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                          Note
+                        </span>
+                        <div className="mt-0.5">{ex.notes}</div>
+                      </div>
+                    )}
+
+                    {block.note && (
+                      <div className="mt-2 whitespace-pre-wrap rounded-lg bg-zinc-950/40 px-3 py-2 text-xs text-zinc-300">
+                        {block.note}
+                      </div>
+                    )}
+
+                    <div className="mt-3 space-y-1.5">
+                      {block.sets.map((s, idx) => {
+                        const showE1RM = isWeightRepsSet(s);
+                        const e1rm = showE1RM
+                          ? estimated1RM(s.weight ?? 0, s.reps ?? 0)
+                          : 0;
+                        return (
+                          <div
+                            key={s.id}
+                            className="flex items-center justify-between rounded-lg bg-zinc-950/60 px-3 py-2 text-sm"
+                          >
+                            <div className="flex min-w-0 items-center gap-3">
+                              <span className="w-5 text-center text-zinc-500">
+                                {idx + 1}
+                              </span>
+                              <span className="truncate tabular-nums text-zinc-100">
+                                {formatSetSummary(s)}
+                              </span>
+                            </div>
+                            <div className="flex shrink-0 items-center gap-1.5 text-xs text-zinc-500">
+                              {showE1RM ? (
+                                <span className="tabular-nums">
+                                  e1RM {Math.round(e1rm * 2) / 2}kg
+                                </span>
+                              ) : null}
+                              {showE1RM && prior && (s.weight ?? 0) > prior.maxWeight && (
+                                <Trophy className="h-3.5 w-3.5 text-amber-400" />
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+
+                    {previousSets.length > 0 && block.sets.length > 0 && (
+                      <LastTimeLine
+                        previousSets={previousSets}
+                        trend={blockTrend}
+                      />
+                    )}
+                  </section>
+                );
+              })}
+
+              {workout.note && (
+                <section className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4 text-sm text-zinc-300">
+                  {workout.note}
+                </section>
+              )}
+            </div>
           </div>
         </div>
       </div>
-    </div>
+
+      {historyFor && (
+        <ExerciseHistoryModal
+          exerciseId={historyFor.id}
+          exerciseName={historyFor.name}
+          onClose={() => setHistoryFor(null)}
+        />
+      )}
+    </>
   );
 }
 
