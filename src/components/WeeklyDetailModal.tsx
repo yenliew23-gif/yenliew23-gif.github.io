@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import clsx from "clsx";
 import { X, Activity, Dumbbell } from "lucide-react";
 import { useExercises, useWorkouts } from "@/lib/hooks";
 import {
@@ -18,11 +19,27 @@ import {
 } from "@/lib/format";
 import type { Exercise, MuscleGroup, SetEntry, WorkoutExercise } from "@/lib/types";
 
+/** Category order for the section headers and filter chips. Matches the
+ *  muscle chips on the home page. */
+const MUSCLE_DISPLAY_ORDER: MuscleGroup[] = [
+  "chest",
+  "back",
+  "shoulders",
+  "arms",
+  "legs",
+  "glutes",
+  "core",
+  "cardio",
+  "other",
+];
+
 /**
  * Modal showing the per-exercise set breakdown for a single week (this week
  * or last week from the home page). Groups every set logged inside the
- * window [weekStart, weekStart + 7 days) by exercise, sorted by total
- * weight-reps volume desc (so the heaviest lift leads).
+ * window [weekStart, weekStart + 7 days) by exercise, then lays the
+ * exercises out under muscle-group headers (chest, back, ...). Within a
+ * group the heaviest lift by total weight-reps volume leads. Filter chips
+ * at the top narrow the list to one group.
  *
  * Each exercise section shows: exercise name + muscle group, totals
  * (sets / reps / volume), and the full set list with the date that workout
@@ -45,6 +62,7 @@ export function WeeklyDetailModal({
   const workouts = useWorkouts();
   const exercises = useExercises();
   const [mounted, setMounted] = useState(false);
+  const [filter, setFilter] = useState<MuscleGroup | "all">("all");
 
   useEffect(() => setMounted(true), []);
 
@@ -161,6 +179,31 @@ export function WeeklyDetailModal({
     return best;
   }, [rows, exercises]);
 
+  // Exercises bucketed by muscle group, in display order. Groups with
+  // nothing logged this week are left out (and get no filter chip).
+  const byCategory = useMemo(() => {
+    const m = new Map<MuscleGroup, typeof exerciseGroups>();
+    for (const g of exerciseGroups) {
+      const ex = exercises.find((e) => e.id === g.exerciseId);
+      const cat: MuscleGroup = ex?.muscleGroup ?? "other";
+      const list = m.get(cat) ?? [];
+      list.push(g);
+      m.set(cat, list);
+    }
+    return MUSCLE_DISPLAY_ORDER.filter((c) => m.has(c)).map((c) => ({
+      category: c,
+      groups: m.get(c)!,
+    }));
+  }, [exerciseGroups, exercises]);
+  // A filter for a group that's no longer in the list falls back to "All".
+  const activeFilter = byCategory.some((c) => c.category === filter)
+    ? filter
+    : "all";
+  const visibleCategories =
+    activeFilter === "all"
+      ? byCategory
+      : byCategory.filter((c) => c.category === activeFilter);
+
   const totalSets = exerciseGroups.reduce((s, g) => s + g.sets, 0);
   const totalReps = exerciseGroups.reduce((s, g) => s + g.reps, 0);
   const totalVolume = exerciseGroups.reduce((s, g) => s + g.volume, 0);
@@ -231,6 +274,17 @@ export function WeeklyDetailModal({
           </button>
         </div>
 
+        {byCategory.length > 1 && (
+          <CategoryChips
+            categories={byCategory.map((c) => ({
+              category: c.category,
+              count: c.groups.length,
+            }))}
+            active={activeFilter}
+            onChange={setFilter}
+          />
+        )}
+
         <div className="flex-1 overflow-y-auto px-4 py-4">
           {exerciseGroups.length === 0 ? (
             <EmptyState />
@@ -243,12 +297,17 @@ export function WeeklyDetailModal({
                 heaviestSet={heaviestSet}
                 workoutCount={workoutCount}
               />
-              {exerciseGroups.map((g) => (
-                <ExerciseSection
-                  key={g.exerciseId}
-                  exercise={exercises.find((e) => e.id === g.exerciseId)}
-                  group={g}
-                />
+              {visibleCategories.map(({ category, groups }) => (
+                <div key={category} className="space-y-2.5">
+                  <CategoryHeader category={category} groups={groups} />
+                  {groups.map((g) => (
+                    <ExerciseSection
+                      key={g.exerciseId}
+                      exercise={exercises.find((e) => e.id === g.exerciseId)}
+                      group={g}
+                    />
+                  ))}
+                </div>
               ))}
               <OutOfWindowRecents recentByGroup={recentByGroup} windowStart={window.start} />
             </div>
@@ -260,6 +319,76 @@ export function WeeklyDetailModal({
 }
 
 // ----- Subcomponents -----
+
+/** Horizontal filter chips: "All" plus one per muscle group logged this
+ *  week, each with its exercise count. */
+function CategoryChips({
+  categories,
+  active,
+  onChange,
+}: {
+  categories: { category: MuscleGroup; count: number }[];
+  active: MuscleGroup | "all";
+  onChange: (c: MuscleGroup | "all") => void;
+}) {
+  const total = categories.reduce((s, c) => s + c.count, 0);
+  const chips: { key: MuscleGroup | "all"; label: string; count: number }[] = [
+    { key: "all", label: "All", count: total },
+    ...categories.map((c) => ({ key: c.category, label: c.category, count: c.count })),
+  ];
+  return (
+    <div
+      role="group"
+      aria-label="Filter by category"
+      className="flex shrink-0 gap-1.5 overflow-x-auto border-b border-zinc-800 px-4 py-2.5 text-xs font-semibold tabular-nums"
+    >
+      {chips.map((c) => {
+        const on = c.key === active;
+        return (
+          <button
+            key={c.key}
+            type="button"
+            onClick={() => onChange(c.key)}
+            aria-pressed={on}
+            className={clsx(
+              "shrink-0 rounded-full px-3 py-1.5 capitalize transition-colors",
+              on
+                ? "bg-emerald-500 text-zinc-950"
+                : "bg-zinc-800 text-zinc-300 hover:bg-zinc-700"
+            )}
+          >
+            {c.label}
+            <span className={clsx("ml-1", on ? "opacity-70" : "text-zinc-500")}>
+              {c.count}
+            </span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function CategoryHeader({
+  category,
+  groups,
+}: {
+  category: MuscleGroup;
+  groups: { sets: number; volume: number }[];
+}) {
+  const sets = groups.reduce((s, g) => s + g.sets, 0);
+  const volume = groups.reduce((s, g) => s + g.volume, 0);
+  return (
+    <div className="flex items-baseline justify-between px-1 pt-1">
+      <h3 className="text-xs font-bold uppercase tracking-wider text-zinc-300">
+        {category}
+      </h3>
+      <span className="text-xs tabular-nums text-zinc-500">
+        {pluralize(groups.length, "exercise")} · {pluralize(sets, "set")}
+        {volume > 0 && <> · {formatVolume(volume)}</>}
+      </span>
+    </div>
+  );
+}
 
 function WeekSummary({
   totalSets,
@@ -410,17 +539,6 @@ function OutOfWindowRecents({
   recentByGroup: Map<MuscleGroup, string>;
   windowStart: string;
 }) {
-  const MUSCLE_DISPLAY_ORDER: MuscleGroup[] = [
-    "chest",
-    "back",
-    "shoulders",
-    "arms",
-    "legs",
-    "glutes",
-    "core",
-    "cardio",
-    "other",
-  ];
   const outOfWindow = MUSCLE_DISPLAY_ORDER
     .filter((g) => recentByGroup.has(g) && recentByGroup.get(g)! < windowStart);
   if (outOfWindow.length === 0) return null;
