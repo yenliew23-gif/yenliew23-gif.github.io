@@ -2,26 +2,49 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
-import { ChevronRight, Plus, Trophy, Activity } from "lucide-react";
+import clsx from "clsx";
+import {
+  Activity,
+  ArrowRight,
+  ChevronRight,
+  TrendingUp,
+  Trophy,
+} from "lucide-react";
 import { PageShell, PageHeader } from "@/components/PageHeader";
-import { StatCard, DeltaPill } from "@/components/StatCard";
+import { DeltaPill } from "@/components/StatCard";
 import { WorkoutCard, type WorkoutTrend } from "@/components/WorkoutCard";
 import { WorkoutDetailModal } from "@/components/WorkoutDetailModal";
 import { WeeklyDetailModal } from "@/components/WeeklyDetailModal";
-import { useExercises, useWorkouts } from "@/lib/hooks";
+import { useExercises, useTemplates, useWorkouts } from "@/lib/hooks";
 import {
   lastNWeeksVolume,
-  personalRecord,
+  latestPR,
   progressByExercise,
   thisWeekVsLastWeek,
   totalVolume,
 } from "@/lib/stats";
-import { formatPct, formatVolume, formatWeekLabel, pluralize } from "@/lib/format";
+import {
+  formatDate,
+  formatPct,
+  formatVolume,
+  formatWeekLabel,
+  formatWeight,
+  pluralize,
+  todayLocalISO,
+} from "@/lib/format";
 import type { MuscleGroup, WeeklyVolume } from "@/lib/types";
+
+function greeting(): string {
+  const h = new Date().getHours();
+  if (h < 12) return "Good morning";
+  if (h < 18) return "Good afternoon";
+  return "Good evening";
+}
 
 export default function HomePage() {
   const workouts = useWorkouts();
   const exercises = useExercises();
+  const templates = useTemplates();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** When set, opens the per-exercise breakdown modal for the chosen week
    *  (this week or last week, keyed by the Monday of that week). */
@@ -32,6 +55,7 @@ export default function HomePage() {
     [workouts, exercises]
   );
   const weekly = useMemo(() => lastNWeeksVolume(workouts, 6), [workouts]);
+  const pr = useMemo(() => latestPR(workouts), [workouts]);
 
   const recent = workouts.slice(0, 3);
 
@@ -53,6 +77,24 @@ export default function HomePage() {
     }
     return best;
   }, [workouts]);
+
+  // "Up next": the active template you've gone longest without logging
+  // (matched on workout name), so a Push / Pull / Legs split rotates by
+  // itself. Templates never logged come first.
+  const upNext = useMemo(() => {
+    const active = templates.filter((t) => !t.archived);
+    if (active.length === 0) return null;
+    const lastDone = new Map<string, string>();
+    for (const w of workouts) {
+      const key = w.name?.trim().toLowerCase();
+      if (key && !lastDone.has(key)) lastDone.set(key, w.date);
+    }
+    return [...active].sort((a, b) => {
+      const da = lastDone.get(a.name.trim().toLowerCase()) ?? "";
+      const db = lastDone.get(b.name.trim().toLowerCase()) ?? "";
+      return da.localeCompare(db);
+    })[0];
+  }, [templates, workouts]);
 
   const lastWorkout = workouts[0];
   const totalAllTime = useMemo(
@@ -76,151 +118,134 @@ export default function HomePage() {
     return map;
   }, [workouts]);
 
+  const sessionsThisWeek = summary
+    ? workouts.filter((w) => w.date >= summary.thisWeek.weekStart).length
+    : 0;
+  const nameOf = (id: string) =>
+    exercises.find((e) => e.id === id)?.name ?? "—";
+
   return (
     <PageShell>
       <PageHeader
-        title="Gym Tracker"
+        title={greeting()}
         subtitle={
           workouts.length === 0
-            ? "No workouts yet"
-            : `${pluralize(workouts.length, "workout")} logged`
-        }
-        right={
-          <Link
-            href="/log"
-            className="flex h-9 w-9 items-center justify-center rounded-full bg-emerald-500 text-zinc-950"
-            aria-label="Log workout"
-          >
-            <Plus className="h-5 w-5" />
-          </Link>
+            ? formatDate(todayLocalISO())
+            : `${formatDate(todayLocalISO())} · ${pluralize(workouts.length, "workout")} logged`
         }
       />
 
-      <div className="space-y-4 px-4 pt-4">
-        {/* This week vs last week — both cards show a per-muscle-group set
-            breakdown so the user can see WHERE volume came from, not just
-            that it went up or down. Chip color always means "this week's
-            count vs last week's count for the same group" — emerald = up,
-            rose = down, zinc = same / no prior. */}
-        {summary && (
-          <section>
-            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
-              This week vs last
-            </h2>
-            <div className="grid grid-cols-2 gap-3">
-              <StatCard
-                label="This week"
-                value={formatVolume(summary.thisWeek.volume)}
-                hint={
-                  <MuscleGroupChips
-                    thisWeek={summary.setsByMuscle.thisWeek}
-                    lastWeek={summary.setsByMuscle.lastWeek}
-                  />
-                }
-                onClick={() => setWeeklyViewStart(summary.thisWeek.weekStart)}
-                ariaLabel={`Open this-week breakdown (${formatVolume(summary.thisWeek.volume)})`}
-              />
-              <StatCard
-                label="vs Last week"
-                value={formatVolume(summary.lastWeek.volume)}
-                hint={
-                  <div className="space-y-1.5">
-                    <div className="inline-flex items-center gap-1">
-                      <DeltaPill pct={summary.volumeDeltaPct} />
-                    </div>
-                    <MuscleGroupChips
-                      thisWeek={summary.setsByMuscle.thisWeek}
-                      lastWeek={summary.setsByMuscle.lastWeek}
-                    />
-                  </div>
-                }
-                tone={
-                  summary.volumeDelta > 0
-                    ? "positive"
-                    : summary.volumeDelta < 0
-                    ? "negative"
-                    : "default"
-                }
-                onClick={() => setWeeklyViewStart(summary.lastWeek.weekStart)}
-                ariaLabel={`Open last-week breakdown (${formatVolume(summary.lastWeek.volume)})`}
-              />
-            </div>
-          </section>
-        )}
+      <div className="space-y-3.5 px-4 pt-4">
+        {/* Quick start */}
+        <Link
+          href={upNext ? `/log?template=${encodeURIComponent(upNext.id)}` : "/log"}
+          className="flex min-h-16 items-center justify-between rounded-[20px] bg-emerald-500 px-4.5 text-zinc-950 transition-transform active:scale-[0.99]"
+        >
+          <span>
+            <span className="block text-[13px] font-semibold opacity-75">
+              {upNext ? "Up next from your templates" : "Ready when you are"}
+            </span>
+            <span className="block text-xl font-bold">
+              {upNext ? `Start ${upNext.name}` : "Log a workout"}
+            </span>
+          </span>
+          <ArrowRight className="h-5.5 w-5.5" strokeWidth={2.4} aria-hidden />
+        </Link>
 
-        {/* Weekly volume bars — always render the section (with empty-state
-            inside if there's no data yet) so the user can see what's
-            expected. Previously hidden entirely, which made it look broken
-            when no workouts were in the last 6 weeks. */}
-        {weekly.length > 0 && (
-          <section className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
-            <h2 className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-400">
-              Weekly volume
-            </h2>
-            {weekly.some((w) => w.volume > 0) ? (
-              <WeeklyVolumeChart weekly={weekly} />
-            ) : (
-              <div className="py-6 text-center text-sm text-zinc-500">
-                Log a weight-reps workout to see your weekly volume trend.
-              </div>
-            )}
-          </section>
-        )}
-
-        {/* Highlights */}
-        <section className="grid grid-cols-2 gap-3">
-          <Link
-            href="/exercises"
-            className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4 active:scale-[0.99] transition-transform"
-          >
+        {/* This week. Tapping opens the per-exercise breakdown; the delta
+            pill opens last week's. Chip color means "this week's set count
+            vs last week's for the same group": lime = up, rose = down. */}
+        {summary && workouts.length > 0 && (
+          <section className="rounded-[20px] border border-zinc-800 bg-zinc-900 p-4">
             <div className="flex items-center justify-between">
-              <span className="text-xs uppercase tracking-wide text-zinc-400">
-                Exercises
-              </span>
-              <ChevronRight className="h-4 w-4 text-zinc-500" />
-            </div>
-            <div className="mt-1 text-xl font-semibold">{exercises.length}</div>
-            <div className="text-xs text-zinc-400">in your library</div>
-          </Link>
-          <Link
-            href="/history"
-            className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4 active:scale-[0.99] transition-transform"
-          >
-            <div className="flex items-center justify-between">
-              <span className="text-xs uppercase tracking-wide text-zinc-400">
-                All time
-              </span>
-              <ChevronRight className="h-4 w-4 text-zinc-500" />
-            </div>
-            <div className="mt-1 text-xl font-semibold">
-              {formatVolume(totalAllTime)}
-            </div>
-            <div className="text-xs text-zinc-400">total volume lifted</div>
-          </Link>
-        </section>
-
-        {/* Most improved */}
-        {topImprovement && exercises.length > 0 && (
-          <section className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4">
-            <div className="flex items-center justify-between">
-              <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
-                Most improved
+              <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
+                This week
               </h2>
-              <Trophy className="h-4 w-4 text-amber-400" />
-            </div>
-            <div className="mt-2 text-lg font-semibold text-zinc-100">
-              {exercises.find((e) => e.id === topImprovement.id)?.name ?? "—"}
-            </div>
-            <div className="mt-1 text-sm text-zinc-300">
-              <span
-                className={
-                  topImprovement.delta > 0 ? "text-emerald-400" : "text-rose-400"
-                }
+              <button
+                type="button"
+                onClick={() => setWeeklyViewStart(summary.lastWeek.weekStart)}
+                aria-label={`Open last-week breakdown (${formatVolume(summary.lastWeek.volume)})`}
+                className="inline-flex min-h-8 items-center gap-1.5 text-xs text-zinc-400"
               >
-                {formatPct(topImprovement.pct)}
-              </span>{" "}
-              on volume vs previous session
+                <DeltaPill pct={summary.volumeDeltaPct} />
+                vs last
+              </button>
             </div>
+            <button
+              type="button"
+              onClick={() => setWeeklyViewStart(summary.thisWeek.weekStart)}
+              aria-label={`Open this-week breakdown (${formatVolume(summary.thisWeek.volume)})`}
+              className="block w-full text-left"
+            >
+              <div className="mt-0.5 flex items-baseline gap-2">
+                <span className="font-display text-[44px] font-bold leading-tight tabular-nums">
+                  {formatVolume(summary.thisWeek.volume)}
+                </span>
+                <span className="text-sm text-zinc-400">
+                  lifted · {pluralize(sessionsThisWeek, "session")}
+                </span>
+              </div>
+              {weekly.some((w) => w.volume > 0) && (
+                <WeeklyVolumeBars weekly={weekly} />
+              )}
+              <MuscleGroupChips
+                thisWeek={summary.setsByMuscle.thisWeek}
+                lastWeek={summary.setsByMuscle.lastWeek}
+              />
+            </button>
+          </section>
+        )}
+
+        {/* Latest PR + most improved */}
+        {(pr || topImprovement) && exercises.length > 0 && (
+          <section className="grid grid-cols-2 gap-3">
+            {pr ? (
+              <Link
+                href="/progress"
+                className="rounded-[20px] bg-amber-500 p-3.5 text-amber-950 transition-transform active:scale-[0.99]"
+              >
+                <Trophy className="h-5.5 w-5.5" strokeWidth={2.2} aria-hidden />
+                <div className="mt-1.5 text-xs font-bold uppercase tracking-wider">
+                  Latest PR
+                </div>
+                <div className="text-[17px] font-bold leading-tight">
+                  {nameOf(pr.exerciseId)}
+                </div>
+                <div className="mt-0.5 font-mono text-base font-bold">
+                  {formatWeight(pr.weight)} × {pr.reps}
+                </div>
+              </Link>
+            ) : (
+              <AllTimeCard total={totalAllTime} />
+            )}
+            {topImprovement ? (
+              <Link
+                href="/progress"
+                className="rounded-[20px] border border-zinc-800 bg-zinc-900 p-3.5 transition-transform active:scale-[0.99]"
+              >
+                <TrendingUp
+                  className="h-5.5 w-5.5 text-emerald-400"
+                  strokeWidth={2.2}
+                  aria-hidden
+                />
+                <div className="mt-1.5 text-xs font-bold uppercase tracking-wider text-zinc-400">
+                  Most improved
+                </div>
+                <div className="text-[17px] font-bold leading-tight">
+                  {nameOf(topImprovement.id)}
+                </div>
+                <div
+                  className={clsx(
+                    "mt-0.5 text-[15px] font-bold",
+                    topImprovement.delta > 0 ? "text-emerald-400" : "text-rose-400"
+                  )}
+                >
+                  {formatPct(topImprovement.pct)} volume
+                </div>
+              </Link>
+            ) : (
+              <AllTimeCard total={totalAllTime} />
+            )}
           </section>
         )}
 
@@ -228,12 +253,12 @@ export default function HomePage() {
         {lastWorkout && (
           <section>
             <div className="mb-2 flex items-center justify-between">
-              <h2 className="text-xs font-semibold uppercase tracking-wide text-zinc-400">
+              <h2 className="text-xs font-bold uppercase tracking-wider text-zinc-400">
                 Last workout
               </h2>
               <Link
                 href="/history"
-                className="text-xs text-emerald-400 hover:underline"
+                className="text-xs font-semibold text-emerald-400 hover:underline"
               >
                 See all
               </Link>
@@ -256,7 +281,7 @@ export default function HomePage() {
         {/* Recent */}
         {recent.length > 1 && (
           <section>
-            <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
+            <h2 className="mb-2 text-xs font-bold uppercase tracking-wider text-zinc-400">
               Recent
             </h2>
             <div className="space-y-2">
@@ -279,23 +304,36 @@ export default function HomePage() {
           </section>
         )}
 
+        {/* Library */}
+        {workouts.length > 0 && (
+          <Link
+            href="/exercises"
+            className="flex items-center justify-between rounded-[20px] border border-zinc-800 bg-zinc-900 px-4 py-3.5 active:scale-[0.99] transition-transform"
+          >
+            <span>
+              <span className="block text-xs font-bold uppercase tracking-wider text-zinc-400">
+                Exercise library
+              </span>
+              <span className="block text-sm text-zinc-300">
+                {pluralize(exercises.length, "exercise")} ·{" "}
+                {formatVolume(totalAllTime)} lifted all time
+              </span>
+            </span>
+            <ChevronRight className="h-4 w-4 text-zinc-500" aria-hidden />
+          </Link>
+        )}
+
         {/* Empty state */}
         {workouts.length === 0 && (
-          <section className="rounded-2xl border border-dashed border-zinc-700 bg-zinc-900/40 p-8 text-center">
-            <Activity className="mx-auto h-8 w-8 text-zinc-500" />
-            <div className="mt-3 text-base font-medium text-zinc-200">
+          <section className="rounded-[20px] border border-dashed border-zinc-700 bg-zinc-900/40 p-8 text-center">
+            <Activity className="mx-auto h-8 w-8 text-zinc-500" aria-hidden />
+            <div className="mt-3 font-display text-2xl font-bold uppercase text-zinc-100">
               Log your first workout
             </div>
             <p className="mt-1 text-sm text-zinc-400">
-              Tap the <span className="font-semibold text-emerald-400">+</span> button to
-              start. We&apos;ll handle the analytics from there.
+              Your weekly volume, PRs and most improved lifts show up here
+              once you&apos;ve logged a session.
             </p>
-            <Link
-              href="/log"
-              className="mt-4 inline-flex h-10 items-center justify-center rounded-full bg-emerald-500 px-5 text-sm font-semibold text-zinc-950"
-            >
-              Start logging
-            </Link>
           </section>
         )}
       </div>
@@ -316,137 +354,74 @@ export default function HomePage() {
   );
 }
 
-// Inline line chart for weekly volume. Hand-rolled SVG instead of pulling
-// recharts (~50KB) for a single tiny widget on the home page. The chart
-// renders:
-//   - 6 evenly-spaced x-axis points (one per week, oldest left)
-//   - A polyline connecting them, scaled so the tallest bar fills the
-//     available height with headroom for the value labels
-//   - A numeric label above each point (e.g. "37.5t")
-//   - Week labels under each tick
-// We use viewBox + 100% width so the chart scales fluidly with the screen.
-function WeeklyVolumeChart({ weekly }: { weekly: WeeklyVolume[] }) {
-  // Padding inside the SVG so labels and the line don't get clipped.
+function AllTimeCard({ total }: { total: number }) {
+  return (
+    <Link
+      href="/history"
+      className="rounded-[20px] border border-zinc-800 bg-zinc-900 p-3.5 transition-transform active:scale-[0.99]"
+    >
+      <div className="text-xs font-bold uppercase tracking-wider text-zinc-400">
+        All time
+      </div>
+      <div className="mt-1 font-display text-3xl font-bold tabular-nums">
+        {formatVolume(total)}
+      </div>
+      <div className="text-xs text-zinc-400">total volume lifted</div>
+    </Link>
+  );
+}
+
+// Weekly volume as six bars, oldest left, this week highlighted. Hand-rolled
+// SVG instead of pulling recharts (~50KB) for one small widget. Bars use a
+// minimum height so a light-but-real week doesn't look like a zero week.
+function WeeklyVolumeBars({ weekly }: { weekly: WeeklyVolume[] }) {
   const W = 320;
-  const H = 132;
-  const PAD_LEFT = 28;
-  const PAD_RIGHT = 16;
-  const PAD_TOP = 18; // room for the numeric label above each point
-  const PAD_BOTTOM = 22; // room for the week label under each tick
-  const innerW = W - PAD_LEFT - PAD_RIGHT;
-  const innerH = H - PAD_TOP - PAD_BOTTOM;
+  const H = 70;
+  const GAP = 16;
+  const barW = (W - GAP * (weekly.length - 1)) / weekly.length;
   const maxV = Math.max(1, ...weekly.map((w) => w.volume));
-  // Smallest visible volume gets ~6% of the chart height so a flat-but-real
-  // week doesn't look identical to a zero week.
-  const minVisiblePct = 0.06;
-
-  const points = weekly.map((w, i) => {
-    const x =
-      weekly.length === 1
-        ? PAD_LEFT + innerW / 2
-        : PAD_LEFT + (i / (weekly.length - 1)) * innerW;
-    const raw = w.volume / maxV;
-    const pct = Math.max(minVisiblePct, raw);
-    const y = PAD_TOP + (1 - pct) * innerH;
-    return { x, y, w };
-  });
-
-  const polyline = points
-    .map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`)
-    .join(" ");
-  const lastX = points[points.length - 1].x.toFixed(1);
-  const firstX = points[0].x.toFixed(1);
-  const baseY = (PAD_TOP + innerH).toFixed(1);
-  const areaPath = `M ${polyline.split(" ").join(" L ")} L ${lastX},${baseY} L ${firstX},${baseY} Z`;
 
   return (
-    <div>
+    <div className="mt-2">
       <svg
         viewBox={`0 0 ${W} ${H}`}
         width="100%"
         height={H}
         preserveAspectRatio="none"
-        className="overflow-visible"
+        role="img"
+        aria-label={`Weekly volume, last ${weekly.length} weeks: ${weekly
+          .map((w) => `${formatWeekLabel(w.weekStart)} ${formatVolume(w.volume)}`)
+          .join(", ")}`}
       >
-        {/* Subtle horizontal gridline at the max */}
-        <line
-          x1={PAD_LEFT}
-          x2={PAD_LEFT + innerW}
-          y1={PAD_TOP}
-          y2={PAD_TOP}
-          stroke="currentColor"
-          strokeOpacity={0.15}
-          strokeDasharray="2 3"
-        />
-        {/* Filled area under the line for visual weight */}
-        <path d={areaPath} className="fill-emerald-500/15" />
-        {/* The line itself */}
-        <polyline
-          points={polyline}
-          className="fill-none stroke-emerald-400"
-          strokeWidth={2}
-          strokeLinejoin="round"
-          strokeLinecap="round"
-        />
-        {/* Points + numeric labels */}
-        {points.map((p) => (
-          <g key={p.w.weekStart}>
-            <circle
-              cx={p.x}
-              cy={p.y}
-              r={3}
-              className="fill-emerald-400 stroke-zinc-950"
-              strokeWidth={1.5}
+        {weekly.map((w, i) => {
+          const h = w.volume > 0 ? Math.max(6, (w.volume / maxV) * H) : 3;
+          const isCurrent = i === weekly.length - 1;
+          return (
+            <rect
+              key={w.weekStart}
+              x={i * (barW + GAP)}
+              y={H - h}
+              width={barW}
+              height={h}
+              rx={6}
+              className={isCurrent ? "fill-emerald-500" : "fill-zinc-700"}
             />
-            <text
-              x={p.x}
-              y={p.y - 6}
-              textAnchor="middle"
-              className="fill-zinc-300"
-              fontSize={9}
-              style={{ fontVariantNumeric: "tabular-nums" }}
-            >
-              {formatVolume(p.w.volume)}
-            </text>
-          </g>
-        ))}
-        {/* Week labels under each tick */}
-        {points.map((p) => (
-          <text
-            key={`label-${p.w.weekStart}`}
-            x={p.x}
-            y={PAD_TOP + innerH + 14}
-            textAnchor="middle"
-            className="fill-zinc-500"
-            fontSize={9}
-          >
-            {formatWeekLabel(p.w.weekStart)}
-          </text>
-        ))}
-        {/* Y-axis max label in the top-left so the user has a scale anchor */}
-        <text
-          x={PAD_LEFT - 4}
-          y={PAD_TOP + 3}
-          textAnchor="end"
-          className="fill-zinc-500"
-          fontSize={9}
-          style={{ fontVariantNumeric: "tabular-nums" }}
-        >
-          {formatVolume(maxV)}
-        </text>
+          );
+        })}
       </svg>
-      <div className="mt-2 text-center text-xs text-zinc-500">
-        Last 6 weeks
+      <div className="mt-1 flex justify-between text-[10px] text-zinc-500">
+        <span>{formatWeekLabel(weekly[0].weekStart)}</span>
+        <span>This week</span>
       </div>
     </div>
   );
 }
 
 /**
- * Display order for muscle groups in the "This week vs last" chips. Puts
- * the user's commonly-requested groups (chest / back / arms / core) first,
- * then the rest in a sensible order. Groups with zero sets in BOTH weeks
- * are filtered out at the call site.
+ * Display order for muscle groups in the "This week" chips. Puts the user's
+ * commonly-requested groups (chest / back / arms / core) first, then the
+ * rest in a sensible order. Groups with zero sets in BOTH weeks are
+ * filtered out.
  */
 const MUSCLE_DISPLAY_ORDER: MuscleGroup[] = [
   "chest",
@@ -461,13 +436,9 @@ const MUSCLE_DISPLAY_ORDER: MuscleGroup[] = [
 ];
 
 /**
- * Compact per-muscle-group set-count breakdown, shown inside both
- * "This week" and "vs Last week" cards on the home page.
- *
- * Color rule: each chip's color reflects the **delta vs the other week**
- * for that same muscle group — emerald if this week's count is higher,
- * rose if lower, zinc if equal or no prior data. So both cards render the
- * same chip colors (both cards' chips answer "is this week up vs last?").
+ * Per-muscle-group set counts for this week. Each chip's color reflects the
+ * delta vs last week for that same group: lime if higher, rose if lower,
+ * neutral if equal or no prior data.
  */
 function MuscleGroupChips({
   thisWeek,
@@ -476,9 +447,6 @@ function MuscleGroupChips({
   thisWeek: Partial<Record<MuscleGroup, number>>;
   lastWeek: Partial<Record<MuscleGroup, number>>;
 }) {
-  // Build the merged list of groups (union of this week + last week),
-  // filtered to those with > 0 sets in at least one of the two weeks,
-  // then ordered by MUSCLE_DISPLAY_ORDER.
   const allGroups = new Set<MuscleGroup>([
     ...(Object.keys(thisWeek) as MuscleGroup[]),
     ...(Object.keys(lastWeek) as MuscleGroup[]),
@@ -486,30 +454,30 @@ function MuscleGroupChips({
   const groups = MUSCLE_DISPLAY_ORDER.filter((g) => allGroups.has(g));
 
   if (groups.length === 0) {
-    return (
-      <div className="text-[10px] text-zinc-500">
-        No sets logged yet
-      </div>
-    );
+    return <div className="mt-2.5 text-xs text-zinc-500">No sets logged yet</div>;
   }
 
   return (
-    <div className="flex flex-wrap gap-x-2 gap-y-1 text-[10px] tabular-nums">
+    <div className="mt-2.5 flex flex-wrap gap-1.5 text-xs font-semibold tabular-nums">
       {groups.map((g) => {
         const tw = thisWeek[g] ?? 0;
         const lw = lastWeek[g] ?? 0;
-        // Color rule for "is this week up?": compare this week's count for
-        // this group to last week's. Same rule for both cards' chips.
-        let tone = "text-zinc-400";
-        if (tw > 0 || lw > 0) {
-          if (tw > lw) tone = "text-emerald-400";
-          else if (tw < lw) tone = "text-rose-400";
-          else tone = "text-zinc-400";
-        }
+        const up = tw > lw;
+        const down = tw < lw;
         return (
-          <span key={g} className="inline-flex items-center gap-1">
-            <span className="text-zinc-500">{g}</span>
-            <span className={tone}>{tw}</span>
+          <span
+            key={g}
+            className={clsx(
+              "rounded-full px-2.5 py-1 capitalize",
+              up
+                ? "bg-emerald-500/15 text-emerald-400"
+                : down
+                ? "bg-rose-500/15 text-rose-300"
+                : "bg-zinc-800 text-zinc-400"
+            )}
+          >
+            {g} {tw}
+            {up ? " ↑" : down ? " ↓" : ""}
           </span>
         );
       })}

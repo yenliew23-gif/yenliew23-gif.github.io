@@ -11,13 +11,13 @@ export default function manifest(): MetadataRoute.Manifest {
   return {
     name: "Gym Tracker",
     short_name: "Gym",
-    description: "Track your workouts and see your progress.",
+    description: "Log every set, spot every PR, and see where you are getting stronger. Free, works offline.",
     start_url: `${basePath}/`,
     scope: `${basePath}/`,
     display: "standalone",
     orientation: "portrait",
-    background_color: "#0a0a0a",
-    theme_color: "#0a0a0a",
+    background_color: "#0c0e0d",
+    theme_color: "#0c0e0d",
     icons: [
       {
         src: `${basePath}/icon.svg`,

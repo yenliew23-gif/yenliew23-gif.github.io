@@ -1,6 +1,6 @@
 "use client";
 
-import { startTransition, useEffect, useState } from "react";
+import { startTransition, useEffect, useMemo, useState } from "react";
 import {
   getExercises,
   getTemplates,
@@ -11,6 +11,8 @@ import {
   markPushedAll,
   hasSeeded,
   markSeeded,
+  hasOnboarded,
+  markOnboarded,
   addExercise,
   addWorkout,
   uid,
@@ -20,7 +22,7 @@ import { getSession, onAuthChange, processMagicLinkFromUrl } from "@/lib/auth";
 import type { Session } from "@supabase/supabase-js";
 import type { Exercise, Workout, WorkoutTemplate } from "@/lib/types";
 
-type AuthStatus = "loading" | "no-cloud" | "needs-signin" | "signed-in";
+export type AuthStatus = "loading" | "no-cloud" | "needs-signin" | "signed-in";
 
 export function useAuth(): {
   status: AuthStatus;
@@ -246,4 +248,48 @@ export function useDeferredReveal(): boolean {
     };
   }, []);
   return ready;
+}
+
+/**
+ * Whether to greet this visitor with the welcome / landing screen instead of
+ * the dashboard. Anyone who is signed in, already has workouts, or has
+ * dismissed it once never sees it, so existing users go straight to their
+ * data. `null` while auth is still loading.
+ */
+export function useFirstVisit(status: AuthStatus): {
+  firstVisit: boolean | null;
+  dismiss: () => void;
+} {
+  // Flipped by markOnboarded() from any route (e.g. /welcome), so listen
+  // rather than relying on a callback.
+  const [dismissed, setDismissed] = useState(false);
+  // Bumped when workouts change (sample-data seeding, a cloud pull), since
+  // having data also means this isn't a first visit.
+  const [dataVersion, setDataVersion] = useState(0);
+  useEffect(() => {
+    const onOnboarded = () => setDismissed(true);
+    const onData = () => setDataVersion((v) => v + 1);
+    window.addEventListener("gym:onboarded", onOnboarded);
+    window.addEventListener("gym:data-changed", onData);
+    return () => {
+      window.removeEventListener("gym:onboarded", onOnboarded);
+      window.removeEventListener("gym:data-changed", onData);
+    };
+  }, []);
+
+  // Auth is "loading" during prerender and the first client render, so
+  // localStorage is only read in the browser.
+  const firstVisit = useMemo(() => {
+    void dataVersion;
+    if (status === "loading") return null;
+    if (dismissed || hasOnboarded()) return false;
+    return status !== "signed-in" && getWorkouts().length === 0;
+  }, [status, dismissed, dataVersion]);
+
+  // Remember existing users so they never see it, even after clearing data.
+  useEffect(() => {
+    if (firstVisit === false && !hasOnboarded()) markOnboarded();
+  }, [firstVisit]);
+
+  return { firstVisit, dismiss: markOnboarded };
 }

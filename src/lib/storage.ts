@@ -18,6 +18,7 @@ const KEY_EXERCISES = "gym.exercises.v1";
 const KEY_WORKOUTS = "gym.workouts.v1";
 const KEY_TEMPLATES = "gym.templates.v1";
 const KEY_SEEDED = "gym.seeded.v1";
+const KEY_ONBOARDED = "gym.onboarded.v1";
 const KEY_PENDING = "gym.pending.v1";
 const KEY_PUSHED_ALL = "gym.pushed-all.v1";
 // Tombstones: IDs the user has deleted locally. Cloud sync must NEVER
@@ -560,6 +561,19 @@ export function hasSeeded(): boolean {
 
 export function markSeeded() {
   writeJSON(KEY_SEEDED, true);
+}
+
+// ----- First visit -----
+
+/** True once this browser has got past the welcome / landing screen. Kept
+ *  on sign-out on purpose: a returning user shouldn't be pitched again. */
+export function hasOnboarded(): boolean {
+  return readJSON<boolean>(KEY_ONBOARDED, false);
+}
+
+export function markOnboarded() {
+  writeJSON(KEY_ONBOARDED, true);
+  if (isBrowser()) window.dispatchEvent(new Event("gym:onboarded"));
 }
 
 // ----- Reset / Sign-out -----

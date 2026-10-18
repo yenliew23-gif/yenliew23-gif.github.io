@@ -518,3 +518,34 @@ export function findExerciseBlock(
 ): WorkoutExercise | undefined {
   return exercises.find((e) => e.exerciseId === exerciseId);
 }
+
+/** The most recent set that beat every earlier session's heaviest weight for
+ *  that exercise (weight × reps sets only). An exercise's first session
+ *  never counts, so a brand-new lift isn't announced as a PR. */
+export function latestPR(
+  workouts: Workout[]
+): { exerciseId: string; weight: number; reps: number; date: string } | null {
+  const chronological = [...workouts].sort(
+    (a, b) => a.date.localeCompare(b.date) || a.createdAt - b.createdAt
+  );
+  const best = new Map<string, number>();
+  let latest: { exerciseId: string; weight: number; reps: number; date: string } | null =
+    null;
+  for (const w of chronological) {
+    for (const ex of w.exercises) {
+      let top: SetEntry | null = null;
+      for (const s of ex.sets) {
+        if (!isWeightRepsSet(s)) continue;
+        if (!top || (s.weight ?? 0) > (top.weight ?? 0)) top = s;
+      }
+      if (!top) continue;
+      const weight = top.weight ?? 0;
+      const prev = best.get(ex.exerciseId);
+      if (prev !== undefined && weight > prev) {
+        latest = { exerciseId: ex.exerciseId, weight, reps: top.reps ?? 0, date: w.date };
+      }
+      if (prev === undefined || weight > prev) best.set(ex.exerciseId, weight);
+    }
+  }
+  return latest;
+}
