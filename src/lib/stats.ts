@@ -549,3 +549,23 @@ export function latestPR(
   }
   return latest;
 }
+
+/** Map each workout id to the most recent earlier workout with the same name
+ *  (trimmed, case-insensitive), so "(A) Pull Day" is compared with the last
+ *  "(A) Pull Day" rather than whatever was logged just before it. Workouts
+ *  without a name, or with no earlier same-name workout, are left out. */
+export function previousSameNameMap(workouts: Workout[]): Map<string, Workout> {
+  const chronological = [...workouts].sort(
+    (a, b) => a.date.localeCompare(b.date) || a.createdAt - b.createdAt
+  );
+  const lastByName = new Map<string, Workout>();
+  const map = new Map<string, Workout>();
+  for (const w of chronological) {
+    const key = w.name?.trim().toLowerCase();
+    if (!key) continue;
+    const prev = lastByName.get(key);
+    if (prev) map.set(w.id, prev);
+    lastByName.set(key, w);
+  }
+  return map;
+}
