@@ -13,6 +13,7 @@ import { useDeferredReveal, useExercises, useWorkouts } from "@/lib/hooks";
 import { formatWeekLabel } from "@/lib/format";
 import {
   isWeightRepsSet,
+  previousSameNameMap,
   totalReps,
   totalVolume,
   weekStartOf,
@@ -42,10 +43,10 @@ export default function HistoryPage() {
   }, [workouts, exercises, q]);
 
   // Map every workout id to its volume trend against the previous workout
-  // (by time). We compute this from the unfiltered, un-grouped list so the
+  // with the same name. We compute this from the unfiltered, un-grouped list so the
   // comparison stays stable even when the user is filtering by name.
   const trendById = useMemo(() => buildTrendMap(workouts), [workouts]);
-  // Numeric deltas (volume / max weight / reps) vs the previous workout, so
+  // Numeric deltas (volume / max weight / reps) vs that same workout, so
   // each card can show concrete "+5kg, +12 reps" instead of just a trend icon.
   const deltaById = useMemo(() => buildDeltaMap(workouts), [workouts]);
 
@@ -122,20 +123,18 @@ export default function HistoryPage() {
 }
 
 /**
- * For each workout in the list, compare its total volume against the next-most-
- * recent workout. The list is expected to be sorted newest-first
- * (which `getWorkouts()` already does), so a workout at index i is compared to
- * the workout at index i+1 (the one that came before it in time).
+ * For each workout in the list, compare its total volume against the most
+ * recent earlier workout with the same name (see `previousSameNameMap`).
  *
- * Returns `undefined` for the very first workout ever logged (no prior).
+ * Returns `undefined` when there is no earlier same-name workout.
  */
 function buildTrendMap(workouts: Workout[]): Map<string, WorkoutTrend> {
   const map = new Map<string, WorkoutTrend>();
-  for (let i = 0; i < workouts.length; i++) {
-    const cur = workouts[i];
-    const prev = workouts[i + 1];
+  const prevById = previousSameNameMap(workouts);
+  for (const cur of workouts) {
+    const prev = prevById.get(cur.id);
     if (!prev) {
-      // Oldest workout — nothing to compare against.
+      // First workout with this name — nothing to compare against.
       continue;
     }
     const dv = totalVolume(cur) - totalVolume(prev);
@@ -152,7 +151,7 @@ function buildTrendMap(workouts: Workout[]): Map<string, WorkoutTrend> {
 }
 
 /**
- * Compute per-workout delta numbers vs the previous workout in time, for
+ * Compute per-workout delta numbers vs the previous same-name workout, for
  * inline display on each History card: volume (kg), max weight (kg), and
  * total reps. Weight deltas only count weight-reps sets; reps deltas count
  * any set that tracks reps (weight-reps + reps-only).
@@ -161,9 +160,9 @@ function buildDeltaMap(
   workouts: Workout[]
 ): Map<string, { trend: WorkoutTrend; delta: WorkoutDelta }> {
   const map = new Map<string, { trend: WorkoutTrend; delta: WorkoutDelta }>();
-  for (let i = 0; i < workouts.length; i++) {
-    const cur = workouts[i];
-    const prev = workouts[i + 1];
+  const prevById = previousSameNameMap(workouts);
+  for (const cur of workouts) {
+    const prev = prevById.get(cur.id);
     if (!prev) continue;
     const dVolume = totalVolume(cur) - totalVolume(prev);
     const dReps = totalReps(cur) - totalReps(prev);

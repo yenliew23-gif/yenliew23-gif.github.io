@@ -22,6 +22,7 @@ import {
   progressByExercise,
   thisWeekVsLastWeek,
   totalVolume,
+  previousSameNameMap,
 } from "@/lib/stats";
 import {
   formatDate,
@@ -102,13 +103,14 @@ export default function HomePage() {
     [workouts]
   );
 
-  // Trend map shared by "Last workout" and "Recent" cards. Computed from the
-  // full workout list so the comparison is stable.
+  // Trend map shared by "Last workout" and "Recent" cards, each compared with
+  // the previous workout of the same name. Computed from the full list so the
+  // comparison is stable.
   const trendById = useMemo(() => {
     const map = new Map<string, WorkoutTrend>();
-    for (let i = 0; i < workouts.length; i++) {
-      const cur = workouts[i];
-      const prev = workouts[i + 1];
+    const prevById = previousSameNameMap(workouts);
+    for (const cur of workouts) {
+      const prev = prevById.get(cur.id);
       if (!prev) continue;
       const dv = totalVolume(cur) - totalVolume(prev);
       if (Math.abs(dv) < 0.5) map.set(cur.id, "flat");

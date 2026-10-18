@@ -9,14 +9,14 @@ import { formatRelativeDay, formatVolume, pluralize } from "@/lib/format";
 export type WorkoutTrend = "up" | "down" | "flat";
 
 /**
- * Numeric deltas vs the previous workout (by time), shown inline on the
+ * Numeric deltas vs the previous workout with the same name, shown inline on the
  * card so the user can see what changed — not just the up/down/flat icon.
  *
  *   volume  — total weight × reps (kg); positive = heavier session
  *   maxWeight — heaviest single set (kg); positive = peak lift grew
  *   reps    — total reps across weight-reps + reps-only sets
  *
- * `undefined` for the very first workout ever logged.
+ * `undefined` when there is no earlier workout with the same name.
  */
 export interface WorkoutDelta {
   dVolume: number;
@@ -33,8 +33,8 @@ export function WorkoutCard({
   workout: Workout;
   exercises: Exercise[];
   /**
-   * How this workout's total volume compares to the previous workout
-   * (in time). `undefined` for the very first workout logged.
+   * How this workout's total volume compares to the previous workout with
+   * the same name. `undefined` when there is none.
    */
   trend?: WorkoutTrend;
   /** Numeric deltas to render next to the totals. */
@@ -87,8 +87,8 @@ export function WorkoutCard({
           {formatVolume(volume)}
         </span>
       </div>
-      {/* Inline delta vs previous workout. Hidden for the very first workout
-          (no prior to compare against). Uses the same trend color so the
+      {/* Inline delta vs the previous same-name workout. Hidden when there is
+          none to compare against. Uses the same trend color so the
           numbers line up with the icon. */}
       {delta && (
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] tabular-nums">
@@ -154,8 +154,8 @@ function TrendBadge({ trend }: { trend: WorkoutTrend }) {
     return (
       <span
         className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-400"
-        aria-label="Improving vs previous workout"
-        title="Improving vs previous workout"
+        aria-label="Improving vs last time"
+        title="Improving vs last time"
       >
         <TrendingUp className="h-3 w-3" />
       </span>
@@ -165,8 +165,8 @@ function TrendBadge({ trend }: { trend: WorkoutTrend }) {
     return (
       <span
         className="inline-flex h-5 w-5 items-center justify-center rounded-full bg-rose-500/15 text-rose-400"
-        aria-label="Regressed vs previous workout"
-        title="Regressed vs previous workout"
+        aria-label="Regressed vs last time"
+        title="Regressed vs last time"
       >
         <TrendingDown className="h-3 w-3" />
       </span>
