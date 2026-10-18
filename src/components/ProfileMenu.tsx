@@ -501,7 +501,7 @@ function SyncDataDialog({
   );
 }
 
-function AuthModal({ onClose }: { onClose: () => void }) {
+export function AuthModal({ onClose }: { onClose: () => void }) {
   const [mode, setMode] = useState<"signin" | "signup" | "magiclink">("signin");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");

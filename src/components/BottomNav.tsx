@@ -26,7 +26,7 @@ export function BottomNav() {
               <li key={t.href} className="flex-1 flex justify-center">
                 <Link
                   href={t.href}
-                  className="my-2 flex h-12 w-12 items-center justify-center rounded-full bg-emerald-500 text-zinc-950 shadow-lg shadow-emerald-900/40"
+                  className="my-2 flex h-13 w-13 items-center justify-center rounded-[18px] bg-emerald-500 text-zinc-950"
                   aria-label={t.label}
                 >
                   <Icon className="h-6 w-6" strokeWidth={2.5} />

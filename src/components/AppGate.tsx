@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { usePathname } from "next/navigation";
 import { Loader2, Settings, X, CloudOff } from "lucide-react";
-import { useAuth, useCloudSync, seedIfEmpty } from "@/lib/hooks";
+import { useAuth, useCloudSync, useFirstVisit, seedIfEmpty } from "@/lib/hooks";
+import { LandingPage, WelcomeScreen } from "@/components/Landing";
 import { readSupabaseConfig } from "@/lib/supabase";
 import { loadStoredConfig, saveStoredConfig, clearStoredConfig } from "@/lib/auth";
 import { initBackgroundSync } from "@/lib/storage";
@@ -24,14 +26,35 @@ export function AppGate({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     if (status === "no-cloud") seedIfEmpty();
   }, [status]);
+  const { firstVisit } = useFirstVisit(status);
+  const pathname = usePathname() ?? "/";
+  const isWelcomeRoute = pathname.startsWith("/welcome");
 
-  if (status === "loading") {
+  if (status === "loading" || (pathname === "/" && firstVisit === null)) {
     return (
       <div className="flex min-h-dvh items-center justify-center bg-zinc-950 text-zinc-500">
         <Loader2 className="h-6 w-6 animate-spin" />
       </div>
     );
   }
+
+  // First-time visitors to the home page get the pitch instead of an empty
+  // dashboard: the welcome screen on phones, the landing page on wider
+  // screens. Every other route (e.g. /log from a shared link) works as usual.
+  if (pathname === "/" && firstVisit) {
+    return (
+      <>
+        <div className="md:hidden">
+          <WelcomeScreen />
+        </div>
+        <div className="hidden md:block">
+          <LandingPage />
+        </div>
+      </>
+    );
+  }
+
+  if (isWelcomeRoute) return <>{children}</>;
 
   return (
     <>

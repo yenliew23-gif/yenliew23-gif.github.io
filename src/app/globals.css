@@ -1,15 +1,40 @@
 @import "tailwindcss";
 
 :root {
-  --background: #0a0a0a;
-  --foreground: #f4f4f5;
+  --background: #0c0e0d;
+  --foreground: #f2f3ee;
 }
 
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --font-sans: var(--font-barlow);
+  --font-display: var(--font-barlow-condensed);
+  --font-mono: var(--font-jetbrains-mono);
+}
+
+/* Brand palette. Rather than renaming every utility across the app, we
+   re-point Tailwind's built-in ramps: "emerald" is the lime brand accent
+   and "zinc" is a slightly green-tinted neutral. Rose and amber keep their
+   defaults (down-trend and PR highlights). */
+@theme {
+  --color-emerald-300: #d4ff8a;
+  --color-emerald-400: #b8f35a;
+  --color-emerald-500: #b8f35a;
+  --color-emerald-600: #9ad63a;
+  --color-emerald-900: #2b3a12;
+
+  --color-zinc-50: #f7f8f4;
+  --color-zinc-100: #f2f3ee;
+  --color-zinc-200: #dadcd5;
+  --color-zinc-300: #c9cdc4;
+  --color-zinc-400: #a3a89e;
+  --color-zinc-500: #8e938a;
+  --color-zinc-600: #5c625b;
+  --color-zinc-700: #3a403b;
+  --color-zinc-800: #222823;
+  --color-zinc-900: #141815;
+  --color-zinc-950: #0c0e0d;
 }
 
 html,

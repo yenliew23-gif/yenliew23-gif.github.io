@@ -198,21 +198,21 @@ export function ExerciseHistoryModal({
                     <AreaChart data={points} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
                       <defs>
                         <linearGradient id="exerciseHistoryFill" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="0%" stopColor="#10b981" stopOpacity={0.35} />
-                          <stop offset="100%" stopColor="#10b981" stopOpacity={0} />
+                          <stop offset="0%" stopColor="#b8f35a" stopOpacity={0.35} />
+                          <stop offset="100%" stopColor="#b8f35a" stopOpacity={0} />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid stroke="#27272a" strokeDasharray="3 3" vertical={false} />
+                      <CartesianGrid stroke="#222823" strokeDasharray="3 3" vertical={false} />
                       <XAxis
                         dataKey="label"
-                        tick={{ fontSize: 10, fill: "#71717a" }}
-                        axisLine={{ stroke: "#27272a" }}
+                        tick={{ fontSize: 10, fill: "#8e938a" }}
+                        axisLine={{ stroke: "#222823" }}
                         tickLine={false}
                         interval="preserveStartEnd"
                         minTickGap={24}
                       />
                       <YAxis
-                        tick={{ fontSize: 10, fill: "#71717a" }}
+                        tick={{ fontSize: 10, fill: "#8e938a" }}
                         axisLine={false}
                         tickLine={false}
                         width={44}
@@ -221,22 +221,22 @@ export function ExerciseHistoryModal({
                       />
                       <Tooltip
                         contentStyle={{
-                          background: "#0a0a0a",
-                          border: "1px solid #27272a",
+                          background: "#0c0e0d",
+                          border: "1px solid #222823",
                           borderRadius: 8,
                           fontSize: 12,
                         }}
-                        labelStyle={{ color: "#a1a1aa" }}
-                        itemStyle={{ color: "#f4f4f5" }}
+                        labelStyle={{ color: "#a3a89e" }}
+                        itemStyle={{ color: "#f2f3ee" }}
                         formatter={(v) => [metric.format(Number(v)), metric.label]}
                       />
                       <Area
                         type="monotone"
                         dataKey="value"
-                        stroke="#10b981"
+                        stroke="#b8f35a"
                         strokeWidth={2}
                         fill="url(#exerciseHistoryFill)"
-                        dot={{ r: 4, fill: "#10b981", stroke: "#0a0a0a", strokeWidth: 2 }}
+                        dot={{ r: 4, fill: "#b8f35a", stroke: "#0c0e0d", strokeWidth: 2 }}
                         activeDot={{ r: 6 }}
                         isAnimationActive={false}
                       />

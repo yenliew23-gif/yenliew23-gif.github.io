@@ -18,7 +18,7 @@ export function PageHeader({
     <header className="sticky top-0 z-20 border-b border-zinc-800 bg-zinc-950/95 backdrop-blur supports-[backdrop-filter]:bg-zinc-950/80">
       <div className="mx-auto flex max-w-md items-center justify-between gap-3 px-4 py-3">
         <div className="min-w-0">
-          <h1 className="truncate text-lg font-semibold text-zinc-50">{title}</h1>
+          <h1 className="truncate font-display text-2xl font-extrabold uppercase leading-tight text-zinc-50">{title}</h1>
           {subtitle && (
             <p className="truncate text-xs text-zinc-400">{subtitle}</p>
           )}
