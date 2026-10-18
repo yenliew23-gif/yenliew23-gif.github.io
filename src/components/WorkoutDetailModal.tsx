@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import clsx from "clsx";
 import {
@@ -42,13 +42,18 @@ const ExerciseHistoryModal = dynamic(
 /**
  * A modal that shows the full detail of a workout, with an edit toggle.
  * Uses a slide-up sheet on small screens, centered dialog on larger ones.
+ *
+ * `focusExerciseId` scrolls that exercise into view on open and outlines it,
+ * so the home page's Latest PR / Most improved cards land right on the lift.
  */
 export function WorkoutDetailModal({
   workoutId,
   onClose,
+  focusExerciseId,
 }: {
   workoutId: string;
   onClose: () => void;
+  focusExerciseId?: string;
 }) {
   const workouts = useWorkouts();
   const exercises = useExercises();
@@ -59,6 +64,18 @@ export function WorkoutDetailModal({
   useEffect(() => setMounted(true), []);
 
   const workout: Workout | undefined = workouts.find((w) => w.id === workoutId);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const hasWorkout = !!workout;
+
+  // Jump to the focused exercise once the workout has loaded. Instant rather
+  // than smooth so it's already in place when the sheet finishes sliding up.
+  useEffect(() => {
+    if (!focusExerciseId || !hasWorkout || editing) return;
+    const target = scrollRef.current?.querySelector<HTMLElement>(
+      `[data-exercise-id="${CSS.escape(focusExerciseId)}"]`
+    );
+    target?.scrollIntoView({ block: "start" });
+  }, [focusExerciseId, hasWorkout, editing]);
 
   // Lock body scroll while open
   useEffect(() => {
@@ -140,7 +157,10 @@ export function WorkoutDetailModal({
             </div>
           </div>
 
-          <div className="flex-1 overflow-y-auto px-4 py-4">
+          <div
+            ref={scrollRef}
+            className="flex-1 scroll-pt-4 overflow-y-auto px-4 py-4"
+          >
             <div className="space-y-4">
               <section className="grid grid-cols-3 gap-2 text-center">
                 <div className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-3">
@@ -192,7 +212,13 @@ export function WorkoutDetailModal({
                 return (
                   <section
                     key={block.id}
-                    className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-4"
+                    data-exercise-id={block.exerciseId}
+                    className={clsx(
+                      "rounded-2xl border bg-zinc-900/60 p-4",
+                      block.exerciseId === focusExerciseId
+                        ? "border-emerald-400 ring-1 ring-emerald-400/40"
+                        : "border-zinc-800"
+                    )}
                   >
                     <div className="flex items-center justify-between">
                       <div className="min-w-0">

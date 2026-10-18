@@ -47,6 +47,13 @@ export default function HomePage() {
   const exercises = useExercises();
   const templates = useTemplates();
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  /** Exercise to scroll to and outline when the workout modal opens (set by
+   *  the Latest PR / Most improved cards). */
+  const [focusExerciseId, setFocusExerciseId] = useState<string | undefined>();
+  const openWorkout = (id: string, exerciseId?: string) => {
+    setSelectedId(id);
+    setFocusExerciseId(exerciseId);
+  };
   /** When set, opens the per-exercise breakdown modal for the chosen week
    *  (this week or last week, keyed by the Monday of that week). */
   const [weeklyViewStart, setWeeklyViewStart] = useState<string | null>(null);
@@ -65,7 +72,8 @@ export default function HomePage() {
     const ids = Array.from(
       new Set(workouts.flatMap((w) => w.exercises.map((e) => e.exerciseId)))
     );
-    let best: { id: string; pct: number; delta: number } | null = null;
+    let best: { id: string; workoutId: string; pct: number; delta: number } | null =
+      null;
     for (const id of ids) {
       const points = progressByExercise(workouts, id);
       if (points.length < 2) continue;
@@ -74,7 +82,14 @@ export default function HomePage() {
       if (prev.totalVolume === 0 && last.totalVolume === 0) continue;
       const delta = last.totalVolume - prev.totalVolume;
       const pct = prev.totalVolume > 0 ? (delta / prev.totalVolume) * 100 : 100;
-      if (!best || pct > best.pct) best = { id, pct, delta };
+      if (best && pct <= best.pct) continue;
+      // The workout behind the latest point, so the card can open it.
+      const workout = workouts.find(
+        (w) =>
+          w.date === last.date &&
+          w.exercises.some((e) => e.exerciseId === id && e.sets.length > 0)
+      );
+      if (workout) best = { id, workoutId: workout.id, pct, delta };
     }
     return best;
   }, [workouts]);
@@ -202,9 +217,11 @@ export default function HomePage() {
         {(pr || topImprovement) && exercises.length > 0 && (
           <section className="grid grid-cols-2 gap-3">
             {pr ? (
-              <Link
-                href="/progress"
-                className="rounded-[20px] bg-amber-500 p-3.5 text-amber-950 transition-transform active:scale-[0.99]"
+              <button
+                type="button"
+                onClick={() => openWorkout(pr.workoutId, pr.exerciseId)}
+                aria-label={`Open the workout with your ${nameOf(pr.exerciseId)} PR`}
+                className="rounded-[20px] bg-amber-500 p-3.5 text-left text-amber-950 transition-transform active:scale-[0.99]"
               >
                 <Trophy className="h-5.5 w-5.5" strokeWidth={2.2} aria-hidden />
                 <div className="mt-1.5 text-xs font-bold uppercase tracking-wider">
@@ -216,14 +233,18 @@ export default function HomePage() {
                 <div className="mt-0.5 font-mono text-base font-bold">
                   {formatWeight(pr.weight)} × {pr.reps}
                 </div>
-              </Link>
+              </button>
             ) : (
               <AllTimeCard total={totalAllTime} />
             )}
             {topImprovement ? (
-              <Link
-                href="/progress"
-                className="rounded-[20px] border border-zinc-800 bg-zinc-900 p-3.5 transition-transform active:scale-[0.99]"
+              <button
+                type="button"
+                onClick={() =>
+                  openWorkout(topImprovement.workoutId, topImprovement.id)
+                }
+                aria-label={`Open your latest ${nameOf(topImprovement.id)} workout`}
+                className="rounded-[20px] border border-zinc-800 bg-zinc-900 p-3.5 text-left transition-transform active:scale-[0.99]"
               >
                 <TrendingUp
                   className="h-5.5 w-5.5 text-emerald-400"
@@ -244,7 +265,7 @@ export default function HomePage() {
                 >
                   {formatPct(topImprovement.pct)} volume
                 </div>
-              </Link>
+              </button>
             ) : (
               <AllTimeCard total={totalAllTime} />
             )}
@@ -267,7 +288,7 @@ export default function HomePage() {
             </div>
             <button
               type="button"
-              onClick={() => setSelectedId(lastWorkout.id)}
+              onClick={() => openWorkout(lastWorkout.id)}
               className="block w-full text-left active:scale-[0.99] transition-transform"
               aria-label={`Open ${lastWorkout.name || "workout"} from ${lastWorkout.date}`}
             >
@@ -291,7 +312,7 @@ export default function HomePage() {
                 <button
                   key={w.id}
                   type="button"
-                  onClick={() => setSelectedId(w.id)}
+                  onClick={() => openWorkout(w.id)}
                   className="block w-full text-left active:scale-[0.99] transition-transform"
                   aria-label={`Open ${w.name || "workout"} from ${w.date}`}
                 >
@@ -343,6 +364,7 @@ export default function HomePage() {
       {selectedId && (
         <WorkoutDetailModal
           workoutId={selectedId}
+          focusExerciseId={focusExerciseId}
           onClose={() => setSelectedId(null)}
         />
       )}
