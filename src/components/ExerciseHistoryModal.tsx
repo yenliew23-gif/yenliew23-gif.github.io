@@ -94,7 +94,17 @@ export function ExerciseHistoryModal({
         .flatMap((w) => {
           const block = w.exercises.find((b) => b.exerciseId === exerciseId);
           return block && block.sets.length > 0
-            ? [{ id: w.id, date: w.date, createdAt: w.createdAt, name: w.name, sets: block.sets }]
+            ? [
+                {
+                  id: w.id,
+                  date: w.date,
+                  createdAt: w.createdAt,
+                  name: w.name,
+                  sets: block.sets,
+                  // This exercise's note from that session, else the workout's note.
+                  note: (block.note || w.note || "").trim(),
+                },
+              ]
             : [];
         })
         .sort((a, b) => a.date.localeCompare(b.date) || a.createdAt - b.createdAt),
@@ -252,9 +262,17 @@ export function ExerciseHistoryModal({
                 <ul className="space-y-1.5">
                   {[...sessions].reverse().map((s) => (
                     <li key={s.id} className="rounded-xl bg-zinc-900/60 px-3 py-2">
-                      <div className="flex items-center justify-between gap-2 text-xs">
-                        <span className="font-medium text-zinc-200">{formatDate(s.date)}</span>
-                        <span className="flex min-w-0 items-center gap-1 text-zinc-500">
+                      <div className="flex items-start justify-between gap-2 text-xs">
+                        <span className="min-w-0">
+                          <span className="font-medium text-zinc-200">{formatDate(s.date)}</span>
+                          {s.note && (
+                            <span className="whitespace-pre-wrap break-words text-zinc-400">
+                              {" · "}
+                              <span className="font-medium text-zinc-300">Notes:</span> {s.note}
+                            </span>
+                          )}
+                        </span>
+                        <span className="flex max-w-[45%] shrink-0 items-center gap-1 text-zinc-500">
                           {best?.id === s.id && (
                             <Trophy className="h-3.5 w-3.5 shrink-0 text-amber-400" aria-label="Best" />
                           )}
