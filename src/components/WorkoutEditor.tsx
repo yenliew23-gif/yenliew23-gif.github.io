@@ -16,6 +16,8 @@ import {
   StickyNote,
   Check,
   Info,
+  ArrowLeftRight,
+  Search,
 } from "lucide-react";
 import clsx from "clsx";
 import type {
@@ -30,6 +32,7 @@ import { addWorkout, deleteWorkout, getWorkout, updateWorkout, uid } from "@/lib
 import { useExercises, useWorkouts } from "@/lib/hooks";
 import { formatDate, formatDuration, formatSetSummary, formatWeight, SET_TYPE_SHORT, todayLocalISO } from "@/lib/format";
 import { bestAndLastForExercise } from "@/lib/stats";
+import { swapOptionsFor } from "@/lib/similar";
 
 // Loaded only when opened, so the charting library stays out of the Log
 // page's initial download.
@@ -261,6 +264,17 @@ export function WorkoutEditor({
   // created a duplicate workout. A ref (not state) so the very next tap sees it.
   const createdRef = useRef(false);
   const [historyFor, setHistoryFor] = useState<{ id: string; name: string } | null>(null);
+  // Which block's swap menu is open (block ID), if any.
+  const [swapOpenFor, setSwapOpenFor] = useState<string | null>(null);
+  // Swapped blocks show a "Swapped from …" tag. Keyed by the new block ID.
+  const [swappedFrom, setSwappedFrom] = useState<Record<string, string>>({});
+  // The last swap, kept for a few seconds so it can be undone.
+  const [lastSwap, setLastSwap] = useState<{
+    newId: string;
+    oldBlock: WorkoutExercise;
+    toName: string;
+  } | null>(null);
+  const undoTimer = useRef<number | null>(null);
   const [hydrated, setHydrated] = useState(false);
 
   // hydrate from existing workout if editing
@@ -298,6 +312,45 @@ export function WorkoutEditor({
     }
     setPickerOpen(false);
   }
+
+  /**
+   * Replace a block's exercise in place. The block keeps its position and
+   * note; its sets are replaced with the new exercise's own last numbers,
+   * exactly as if it had been added fresh. Undo restores the old block.
+   */
+  function swapBlock(blockId: string, ex: Exercise) {
+    const old = blocks.find((b) => b.id === blockId);
+    if (!old) return;
+    const oldName = exercises.find((e) => e.id === old.exerciseId)?.name;
+    const { block, footnote } = emptyExerciseBlock(ex, workouts);
+    const next: WorkoutExercise = { ...block, order: old.order, note: old.note };
+    setBlocks((cur) => cur.map((b) => (b.id === blockId ? next : b)));
+    if (footnote) {
+      setRuntimeFootnotes((prev) => ({ ...prev, [next.id]: footnote }));
+    }
+    if (oldName) setSwappedFrom((prev) => ({ ...prev, [next.id]: oldName }));
+    setSwapOpenFor(null);
+    setLastSwap({ newId: next.id, oldBlock: old, toName: ex.name });
+    if (undoTimer.current) window.clearTimeout(undoTimer.current);
+    undoTimer.current = window.setTimeout(() => setLastSwap(null), 6000);
+  }
+
+  function undoSwap() {
+    if (!lastSwap) return;
+    const { newId, oldBlock } = lastSwap;
+    // Keep any note typed since the swap.
+    setBlocks((cur) =>
+      cur.map((b) => (b.id === newId ? { ...oldBlock, note: b.note } : b))
+    );
+    setLastSwap(null);
+    if (undoTimer.current) window.clearTimeout(undoTimer.current);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (undoTimer.current) window.clearTimeout(undoTimer.current);
+    };
+  }, []);
 
   function createNewExercise() {
     if (!newExercise) return;
@@ -495,10 +548,30 @@ export function WorkoutEditor({
         return (
           <section
             key={block.id}
-            className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-3"
+            className={clsx(
+              "relative rounded-2xl border bg-zinc-900/60 p-3",
+              lastSwap?.newId === block.id ? "border-emerald-500/70" : "border-zinc-800"
+            )}
           >
-            <div className="flex items-center justify-between">
-              <div className="min-w-0">
+            <div className="flex items-center justify-between gap-2">
+              {ex && (
+                <button
+                  type="button"
+                  onClick={() => setSwapOpenFor(swapOpenFor === block.id ? null : block.id)}
+                  className={clsx(
+                    "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border",
+                    swapOpenFor === block.id
+                      ? "border-emerald-500 bg-emerald-500 text-zinc-950"
+                      : "border-zinc-700 bg-zinc-950 text-emerald-400 hover:bg-zinc-800"
+                  )}
+                  aria-label={`Swap ${ex.name} for a similar exercise`}
+                  aria-expanded={swapOpenFor === block.id}
+                  title="Swap exercise"
+                >
+                  <ArrowLeftRight className="h-4 w-4" />
+                </button>
+              )}
+              <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 items-center gap-1">
                   <span className="truncate text-sm font-semibold text-zinc-100">
                     {ex?.name ?? "(deleted exercise)"}
@@ -548,6 +621,16 @@ export function WorkoutEditor({
                 </button>
               </div>
             </div>
+
+            {ex && swapOpenFor === block.id && (
+              <SwapMenu
+                current={ex}
+                exercises={exercises}
+                usedIds={usedExerciseIds}
+                onPick={(picked) => swapBlock(block.id, picked)}
+                onClose={() => setSwapOpenFor(null)}
+              />
+            )}
 
             {/* Sets header */}
             <div className="mt-3 grid grid-cols-[2rem_7.5rem_minmax(0,1fr)_minmax(0,1fr)_2rem] items-center gap-1.5 text-[10px] uppercase tracking-wide text-zinc-500">
@@ -602,6 +685,14 @@ export function WorkoutEditor({
                 <Info className="mt-0.5 h-3 w-3 shrink-0" />
                 <span>
                   {initialFootnotes?.[block.id] ?? runtimeFootnotes[block.id]}
+                </span>
+              </div>
+            )}
+
+            {swappedFrom[block.id] && (
+              <div className="mt-2">
+                <span className="inline-block rounded-full bg-emerald-500/10 px-2 py-0.5 text-[11px] text-emerald-400">
+                  Swapped from {swappedFrom[block.id]}
                 </span>
               </div>
             )}
@@ -770,6 +861,24 @@ export function WorkoutEditor({
         </div>
       )}
 
+      {lastSwap && (
+        <div
+          role="status"
+          className="fixed inset-x-0 bottom-40 z-30 flex justify-center px-4"
+        >
+          <div className="flex max-w-full items-center gap-3 rounded-full bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-950 shadow-lg">
+            <span className="truncate">Swapped to {lastSwap.toName}</span>
+            <button
+              type="button"
+              onClick={undoSwap}
+              className="shrink-0 font-semibold text-emerald-900 underline-offset-2 hover:underline"
+            >
+              Undo
+            </button>
+          </div>
+        </div>
+      )}
+
       {historyFor && (
         <ExerciseHistoryModal
           exerciseId={historyFor.id}
@@ -777,6 +886,114 @@ export function WorkoutEditor({
           onClose={() => setHistoryFor(null)}
         />
       )}
+    </div>
+  );
+}
+
+/**
+ * Dropdown under an exercise's header listing exercises to swap it for:
+ * the closest movement matches first, then the rest of the same muscle
+ * group. Typing searches the whole library.
+ */
+function SwapMenu({
+  current,
+  exercises,
+  usedIds,
+  onPick,
+  onClose,
+}: {
+  current: Exercise;
+  exercises: Exercise[];
+  usedIds: string[];
+  onPick: (ex: Exercise) => void;
+  onClose: () => void;
+}) {
+  const [query, setQuery] = useState("");
+  const ref = useRef<HTMLDivElement | null>(null);
+  const opts = useMemo(() => swapOptionsFor(current, exercises), [current, exercises]);
+
+  // Close on a tap outside the menu or on Escape.
+  useEffect(() => {
+    function onDown(e: PointerEvent) {
+      const target = e.target as Node;
+      if (ref.current && !ref.current.contains(target)) {
+        // Let the swap button's own click toggle the menu shut.
+        if ((target as Element).closest?.("[aria-expanded='true']")) return;
+        onClose();
+      }
+    }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("pointerdown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("pointerdown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+
+  const q = query.trim().toLowerCase();
+  const match = (e: Exercise) => !q || e.name.toLowerCase().includes(q);
+  const groupLabel = current.muscleGroup === "other" ? "Other exercises" : `Other ${current.muscleGroup}`;
+  const groups: { label: string; items: Exercise[] }[] = [
+    { label: opts.similarLabel, items: opts.similar.filter(match) },
+    { label: groupLabel, items: opts.sameGroup.filter(match) },
+    // The rest of the library only shows up when searching.
+    { label: "Everything else", items: q ? opts.others.filter(match) : [] },
+  ].filter((g) => g.items.length > 0);
+
+  return (
+    <div
+      ref={ref}
+      className="absolute left-2 right-2 top-14 z-20 rounded-xl border border-zinc-700 bg-zinc-950 p-2 shadow-2xl shadow-black/60"
+    >
+      <label className="flex h-10 items-center gap-2 rounded-lg border border-zinc-700 px-3 focus-within:border-emerald-500">
+        <Search className="h-4 w-4 shrink-0 text-zinc-500" />
+        <input
+          type="text"
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="Search exercises…"
+          aria-label="Search exercises to swap in"
+          className="w-full min-w-0 bg-transparent text-base text-zinc-100 outline-none placeholder:text-zinc-600"
+        />
+      </label>
+      <div className="mt-1 max-h-72 overflow-y-auto">
+        {groups.length === 0 && (
+          <p className="px-2 py-4 text-center text-xs text-zinc-500">
+            {q
+              ? `No exercises match "${query.trim()}".`
+              : "No similar exercises yet. Add more on the Exercises page, or search for any exercise."}
+          </p>
+        )}
+        {groups.map((g) => (
+          <div key={g.label}>
+            <div className="mx-1 mb-1 mt-2.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+              {g.label}
+            </div>
+            {g.items.map((e) => {
+              const used = usedIds.includes(e.id);
+              return (
+                <button
+                  key={e.id}
+                  type="button"
+                  disabled={used}
+                  onClick={() => onPick(e)}
+                  className="flex w-full items-center justify-between gap-2 rounded-lg px-2 py-2.5 text-left text-sm text-zinc-100 hover:bg-emerald-500/10 disabled:opacity-40"
+                >
+                  <span className="truncate">{e.name}</span>
+                  {used && (
+                    <span className="shrink-0 text-[10px] uppercase tracking-wide text-zinc-500">
+                      in workout
+                    </span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
