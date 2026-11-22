@@ -2,7 +2,7 @@
 // Caches the app shell + static assets so the PWA installs properly,
 // works offline, and refreshes in the background.
 
-const CACHE_VERSION = "gym-tracker-v3";
+const CACHE_VERSION = "gym-tracker-v4";
 const SHELL_CACHE = `${CACHE_VERSION}-shell`;
 const RUNTIME_CACHE = `${CACHE_VERSION}-runtime`;
 
@@ -93,5 +93,31 @@ self.addEventListener("fetch", (event) => {
         return response;
       });
     })
+  );
+});
+
+// "Done at the gym?" save reminder (shown by the Log page, see src/lib/draft.ts).
+// Tapping it, or "Save now", opens the Log page where the unsaved workout is
+// waiting. "Still training" just dismisses it.
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close();
+  if (event.action === "later") return;
+  const target =
+    (event.notification.data && event.notification.data.url) ||
+    new URL("log/", self.registration.scope).toString();
+  event.waitUntil(
+    self.clients
+      .matchAll({ type: "window", includeUncontrolled: true })
+      .then((clients) => {
+        for (const client of clients) {
+          if ("focus" in client) {
+            return client
+              .focus()
+              .then((c) => (c && "navigate" in c ? c.navigate(target) : c))
+              .catch(() => self.clients.openWindow(target));
+          }
+        }
+        return self.clients.openWindow(target);
+      })
   );
 });

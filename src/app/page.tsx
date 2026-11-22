@@ -6,6 +6,7 @@ import clsx from "clsx";
 import {
   Activity,
   ArrowRight,
+  X,
   ChevronRight,
   TrendingUp,
   Trophy,
@@ -34,6 +35,15 @@ import {
   todayLocalISO,
 } from "@/lib/format";
 import type { MuscleGroup, WeeklyVolume } from "@/lib/types";
+import {
+  clearDraft,
+  filledExerciseCount,
+  filledSetCount,
+  hasUnsavedSets,
+  startedLabel,
+  useDraft,
+  type WorkoutDraft,
+} from "@/lib/draft";
 
 function greeting(): string {
   const h = new Date().getHours();
@@ -46,6 +56,7 @@ export default function HomePage() {
   const workouts = useWorkouts();
   const exercises = useExercises();
   const templates = useTemplates();
+  const draft = useDraft();
   const [selectedId, setSelectedId] = useState<string | null>(null);
   /** Exercise to scroll to and outline when the workout modal opens (set by
    *  the Latest PR / Most improved cards). */
@@ -153,6 +164,9 @@ export default function HomePage() {
       />
 
       <div className="space-y-3.5 px-4 pt-4">
+        {/* An unsaved workout from earlier goes first */}
+        {hasUnsavedSets(draft) && <UnsavedWorkoutCard draft={draft} />}
+
         {/* Quick start */}
         <Link
           href={upNext ? `/log?template=${encodeURIComponent(upNext.id)}` : "/log"}
@@ -506,5 +520,63 @@ function MuscleGroupChips({
         );
       })}
     </div>
+  );
+}
+
+/** "Not saved yet" card for a workout left on the Log page without saving. */
+function UnsavedWorkoutCard({ draft }: { draft: WorkoutDraft }) {
+  const [confirming, setConfirming] = useState(false);
+  const exs = filledExerciseCount(draft.blocks);
+  const sets = filledSetCount(draft.blocks);
+  return (
+    <section className="rounded-[20px] border-[1.5px] border-emerald-500 bg-emerald-500/10 p-4">
+      <div className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-emerald-400">
+        <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_0_4px_rgba(184,243,90,0.2)]" />
+        Not saved yet
+      </div>
+      <div className="mt-1.5 text-[19px] font-bold leading-tight">
+        {draft.name.trim() || "Unsaved workout"}
+      </div>
+      <div className="mt-0.5 text-[13px] text-zinc-400">
+        Started {startedLabel(draft.startedAt)} · {pluralize(exs, "exercise")} ·{" "}
+        {pluralize(sets, "set")}
+      </div>
+      {confirming ? (
+        <div className="mt-3 flex items-center gap-2">
+          <span className="flex-1 text-sm text-zinc-300">Discard this workout?</span>
+          <button
+            type="button"
+            onClick={() => setConfirming(false)}
+            className="inline-flex h-10 items-center rounded-[14px] border border-zinc-700 px-3 text-sm font-semibold text-zinc-300"
+          >
+            Keep
+          </button>
+          <button
+            type="button"
+            onClick={() => clearDraft()}
+            className="inline-flex h-10 items-center rounded-[14px] bg-rose-500 px-3 text-sm font-bold text-white"
+          >
+            Discard
+          </button>
+        </div>
+      ) : (
+        <div className="mt-3 flex gap-2">
+          <button
+            type="button"
+            onClick={() => setConfirming(true)}
+            className="inline-flex h-11 w-24 items-center justify-center gap-1 rounded-[14px] border border-zinc-700 text-sm font-semibold text-zinc-400"
+          >
+            <X className="h-4 w-4" aria-hidden />
+            Discard
+          </button>
+          <Link
+            href="/log"
+            className="inline-flex h-11 flex-1 items-center justify-center rounded-[14px] bg-emerald-500 text-sm font-bold text-zinc-950 active:scale-[0.99]"
+          >
+            Review &amp; save
+          </Link>
+        </div>
+      )}
+    </section>
   );
 }

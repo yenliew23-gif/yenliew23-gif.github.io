@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Sparkles, Plus, ChevronRight } from "lucide-react";
+import { Sparkles, Plus, ChevronRight, History as HistoryIcon } from "lucide-react";
 import { PageShell, PageHeader } from "@/components/PageHeader";
 import { WorkoutEditor } from "@/components/WorkoutEditor";
 import { defaultSetTypeForExercise } from "@/components/WorkoutEditor";
@@ -10,6 +10,7 @@ import { useExercises, useTemplates, useWorkouts } from "@/lib/hooks";
 import { getTemplate, uid } from "@/lib/storage";
 import { bestAndLastForExercise, lastSessionForExercise } from "@/lib/stats";
 import { formatDate, formatWeight } from "@/lib/format";
+import { clearDraft, loadDraft, startedLabel, type WorkoutDraft } from "@/lib/draft";
 import type {
   Exercise,
   SetEntry,
@@ -129,12 +130,17 @@ export default function LogPage() {
   // when appliedTemplate is truthy, so the user would be stuck.
   const [wantsBlank, setWantsBlank] = useState(false);
   const [hydrated, setHydrated] = useState(false);
+  // An unsaved workout from earlier, picked up instead of starting fresh.
+  const [resumed, setResumed] = useState<WorkoutDraft | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
     const url = new URL(window.location.href);
     const tplId = url.searchParams.get("template");
-    if (tplId) {
+    const draft = loadDraft();
+    if (draft && draft.blocks.length > 0) {
+      setResumed(draft);
+    } else if (tplId) {
       const t = getTemplate(tplId);
       if (t) setAppliedTemplate(t);
       // Clean the URL
@@ -275,6 +281,45 @@ export default function LogPage() {
   }, [appliedTemplate, workouts]);
 
   const activeTemplates = templates.filter((t) => !t.archived);
+
+  function startOver() {
+    clearDraft();
+    setResumed(null);
+    setAppliedTemplate(null);
+    setWantsBlank(false);
+  }
+
+  if (resumed) {
+    return (
+      <PageShell>
+        <PageHeader
+          title="Log workout"
+          subtitle={resumed.name ? `Unsaved: ${resumed.name}` : "Unsaved workout"}
+        />
+        <div className="px-4 pt-4">
+          <div className="flex items-center gap-3 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 px-3 py-2.5 text-sm text-emerald-300">
+            <HistoryIcon className="h-4 w-4 shrink-0" aria-hidden />
+            <span className="min-w-0 flex-1">
+              Picked up your unsaved workout from {startedLabel(resumed.startedAt)}.
+            </span>
+            <button
+              type="button"
+              onClick={startOver}
+              className="shrink-0 text-xs font-semibold text-zinc-300 underline-offset-2 hover:underline"
+            >
+              Start over
+            </button>
+          </div>
+        </div>
+        <WorkoutEditor
+          mode="create"
+          key="resumed"
+          resumeDraft={resumed}
+          initialFootnotes={resumed.footnotes}
+        />
+      </PageShell>
+    );
+  }
 
   return (
     <PageShell>
