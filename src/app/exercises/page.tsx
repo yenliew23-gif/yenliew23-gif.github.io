@@ -217,7 +217,7 @@ export default function ExercisesPage() {
           <div className="text-[10px] uppercase tracking-wide text-zinc-400">
             Add exercise
           </div>
-          <div className="mt-2 flex gap-2">
+          <div className="mt-2 flex flex-wrap gap-2">
             <input
               type="text"
               value={newName}
@@ -234,12 +234,12 @@ export default function ExercisesPage() {
               }}
               onKeyDown={(e) => e.key === "Enter" && handleAdd()}
               placeholder="e.g. Incline Bench"
-              className="h-10 flex-1 rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500"
+              className="h-10 w-full min-w-0 basis-full rounded-lg border border-zinc-800 bg-zinc-950 px-3 text-sm text-zinc-100 outline-none placeholder:text-zinc-600 focus:border-emerald-500"
             />
             <select
               value={newGroup}
               onChange={(e) => setNewGroup(e.target.value as MuscleGroup)}
-              className="h-10 rounded-lg border border-zinc-800 bg-zinc-950 px-2 text-sm text-zinc-100 outline-none focus:border-emerald-500"
+              className="h-10 min-w-0 flex-1 rounded-lg border border-zinc-800 bg-zinc-950 px-2 text-sm text-zinc-100 outline-none focus:border-emerald-500"
             >
               {MUSCLE_GROUPS.map((g) => (
                 <option key={g.value} value={g.value}>
@@ -254,7 +254,7 @@ export default function ExercisesPage() {
                 setTypeTouched(true);
               }}
               title="Default set type for the first set in the editor"
-              className="h-10 rounded-lg border border-zinc-800 bg-zinc-950 px-2 text-sm text-zinc-100 outline-none focus:border-emerald-500"
+              className="h-10 min-w-0 flex-1 rounded-lg border border-zinc-800 bg-zinc-950 px-2 text-sm text-zinc-100 outline-none focus:border-emerald-500"
             >
               <option value={AUTO_SET_TYPE}>Auto</option>
               {SET_TYPE_OPTIONS.map((t) => (
@@ -266,10 +266,11 @@ export default function ExercisesPage() {
             <button
               onClick={handleAdd}
               disabled={!newName.trim()}
-              className="flex h-10 w-10 items-center justify-center rounded-lg bg-emerald-500 text-zinc-950 disabled:opacity-50"
-              aria-label="Add"
+              className="flex h-10 shrink-0 items-center justify-center gap-1 rounded-lg bg-emerald-500 px-4 text-sm font-semibold text-zinc-950 disabled:opacity-50"
+              aria-label="Add exercise"
             >
               <Plus className="h-5 w-5" />
+              Add
             </button>
           </div>
         </section>

@@ -13,6 +13,7 @@ import {
   Archive,
   ArchiveRestore,
   Sparkles,
+  ArrowLeftRight,
 } from "lucide-react";
 import clsx from "clsx";
 import { PageShell, PageHeader } from "@/components/PageHeader";
@@ -25,6 +26,7 @@ import {
   uid,
 } from "@/lib/storage";
 import { defaultSetTypeForExercise } from "@/components/WorkoutEditor";
+import { SwapMenu } from "@/components/SwapMenu";
 import { SET_TYPE_LABELS } from "@/lib/format";
 import type {
   Exercise,
@@ -228,6 +230,15 @@ function TemplateEditor({
   const [name, setName] = useState("");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [newEx, setNewEx] = useState<{ name: string; muscleGroup: MuscleGroup } | null>(null);
+  // Which block's swap menu is open (block ID), if any.
+  const [swapOpenFor, setSwapOpenFor] = useState<string | null>(null);
+  // The last swap, kept for a few seconds so it can be undone.
+  const [lastSwap, setLastSwap] = useState<{
+    blockId: string;
+    oldBlock: TemplateExercise;
+    toName: string;
+  } | null>(null);
+  const undoTimer = useRef<number | null>(null);
 
   useEffect(() => {
     const t = getTemplate(id);
@@ -301,6 +312,36 @@ function TemplateEditor({
     persist({
       exercises: tpl.exercises.map((b) => (b.id === bid ? { ...b, ...patch } : b)),
     });
+  }
+
+  /**
+   * Swap a template exercise for another one in place. Sets and reps stay;
+   * the set type follows the new exercise and the old weight is cleared,
+   * since it belonged to a different movement. Undo restores the old one.
+   */
+  function swapBlock(bid: string, ex: Exercise) {
+    if (!tpl) return;
+    const old = tpl.exercises.find((b) => b.id === bid);
+    if (!old) return;
+    updateBlock(bid, {
+      exerciseId: ex.id,
+      defaultSetType: defaultSetTypeForExercise(ex),
+      defaultWeight: undefined,
+    });
+    setSwapOpenFor(null);
+    setLastSwap({ blockId: bid, oldBlock: old, toName: ex.name });
+    if (undoTimer.current) window.clearTimeout(undoTimer.current);
+    undoTimer.current = window.setTimeout(() => setLastSwap(null), 6000);
+  }
+
+  function undoSwap() {
+    if (!tpl || !lastSwap) return;
+    const { blockId, oldBlock } = lastSwap;
+    persist({
+      exercises: tpl.exercises.map((b) => (b.id === blockId ? oldBlock : b)),
+    });
+    setLastSwap(null);
+    if (undoTimer.current) window.clearTimeout(undoTimer.current);
   }
 
   function removeBlock(bid: string) {
@@ -410,10 +451,30 @@ function TemplateEditor({
             return (
               <section
                 key={block.id}
-                className="rounded-2xl border border-zinc-800 bg-zinc-900/60 p-3"
+                className={clsx(
+                  "relative rounded-2xl border bg-zinc-900/60 p-3",
+                  lastSwap?.blockId === block.id ? "border-emerald-500/70" : "border-zinc-800"
+                )}
               >
-                <div className="flex items-center justify-between">
-                  <div className="min-w-0">
+                <div className="flex items-center justify-between gap-2">
+                  {ex && (
+                    <button
+                      type="button"
+                      onClick={() => setSwapOpenFor(swapOpenFor === block.id ? null : block.id)}
+                      className={clsx(
+                        "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border",
+                        swapOpenFor === block.id
+                          ? "border-emerald-500 bg-emerald-500 text-zinc-950"
+                          : "border-zinc-700 bg-zinc-950 text-emerald-400 hover:bg-zinc-800"
+                      )}
+                      aria-label={`Swap ${ex.name} for a similar exercise`}
+                      aria-expanded={swapOpenFor === block.id}
+                      title="Swap exercise"
+                    >
+                      <ArrowLeftRight className="h-4 w-4" />
+                    </button>
+                  )}
+                  <div className="min-w-0 flex-1">
                     <div className="truncate text-sm font-semibold text-zinc-100">
                       {ex?.name ?? "(deleted)"}
                     </div>
@@ -447,6 +508,17 @@ function TemplateEditor({
                     </button>
                   </div>
                 </div>
+
+                {ex && swapOpenFor === block.id && (
+                  <SwapMenu
+                    current={ex}
+                    exercises={exercises}
+                    usedIds={usedIds}
+                    usedLabel="in template"
+                    onPick={(picked) => swapBlock(block.id, picked)}
+                    onClose={() => setSwapOpenFor(null)}
+                  />
+                )}
 
                 <div className="mt-3 space-y-2">
                   {/* UOM / Set type — drives which numeric inputs show below */}
@@ -630,6 +702,24 @@ function TemplateEditor({
           Done
         </button>
       </div>
+
+      {lastSwap && (
+        <div
+          role="status"
+          className="fixed inset-x-0 bottom-24 z-30 flex justify-center px-4"
+        >
+          <div className="flex max-w-full items-center gap-3 rounded-full bg-zinc-100 px-4 py-2 text-sm font-medium text-zinc-950 shadow-lg">
+            <span className="truncate">Swapped to {lastSwap.toName}</span>
+            <button
+              type="button"
+              onClick={undoSwap}
+              className="shrink-0 font-semibold text-emerald-900 underline-offset-2 hover:underline"
+            >
+              Undo
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Picker */}
       {pickerOpen && (
