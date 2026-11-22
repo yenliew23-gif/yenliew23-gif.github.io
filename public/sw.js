@@ -16,12 +16,12 @@ const SHELL_URLS = [
   "/exercises/",
   "/templates/",
   "/manifest.webmanifest",
-  "/icon.svg",
-  "/icon-192.png",
-  "/icon-512.png",
-  "/icon-maskable-192.png",
-  "/icon-maskable-512.png",
-  "/apple-touch-icon.png",
+  "/logbook-v1.svg",
+  "/logbook-v1-180.png",
+  "/logbook-v1-192.png",
+  "/logbook-v1-512.png",
+  "/logbook-v1-maskable-192.png",
+  "/logbook-v1-maskable-512.png",
 ];
 
 self.addEventListener("install", (event) => {
