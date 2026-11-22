@@ -7,7 +7,6 @@ import {
   BarChart3,
   Clock,
   Cloud,
-  Dumbbell,
   LayoutList,
   Smartphone,
   Trophy,
@@ -90,19 +89,29 @@ function useStartLogging() {
   };
 }
 
+/** LogBook kettlebell mark, the same drawing as public/icon.svg. */
 function Logo({ size = "md" }: { size?: "md" | "lg" }) {
   return (
     <span
       className={clsx(
-        "flex items-center justify-center bg-emerald-500 text-zinc-950",
+        "flex items-center justify-center overflow-hidden bg-zinc-950 ring-1 ring-zinc-800",
         size === "lg" ? "h-14 w-14 rounded-2xl" : "h-9 w-9 rounded-[10px]"
       )}
     >
-      <Dumbbell
-        className={size === "lg" ? "h-7 w-7" : "h-5 w-5"}
-        strokeWidth={2.4}
-        aria-hidden
-      />
+      <svg viewBox="0 0 512 512" className="h-full w-full" aria-hidden>
+        <g transform="translate(0 -6)">
+          <path
+            d="M180 250 C 150 190, 160 128, 256 128 C 352 128, 362 190, 332 250"
+            fill="none"
+            stroke="#b8f35a"
+            strokeWidth={40}
+            strokeLinecap="round"
+          />
+          <path d="M256 196 C 360 196, 386 270, 380 330 C 374 396, 326 424, 256 424 C 186 424, 138 396, 132 330 C 126 270, 152 196, 256 196 Z" fill="#b8f35a" />
+          <rect x="196" y="300" width="120" height="20" rx="10" fill="#0c0e0d" />
+          <rect x="196" y="340" width="84" height="20" rx="10" fill="#0c0e0d" />
+        </g>
+      </svg>
     </span>
   );
 }
@@ -123,7 +132,7 @@ export function LandingPage() {
         <a href="#top" className="flex items-center gap-2.5 text-zinc-100">
           <Logo />
           <span className="font-display text-2xl font-extrabold uppercase tracking-wide">
-            Gym Tracker
+            LogBook
           </span>
         </a>
         <nav
@@ -334,7 +343,7 @@ export function LandingPage() {
 
       <footer className="border-t border-zinc-800">
         <div className="mx-auto flex max-w-6xl flex-wrap justify-between gap-4 px-6 py-8 text-sm text-zinc-500">
-          <span>© {new Date().getFullYear()} Gym Tracker</span>
+          <span>© {new Date().getFullYear()} LogBook</span>
           <span className="flex gap-6">
             <a href="#features" className="hover:text-zinc-300">
               Features

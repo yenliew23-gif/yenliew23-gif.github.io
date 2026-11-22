@@ -1,4 +1,4 @@
-# Gym Tracker
+# LogBook
 
 A mobile-first gym tracking PWA built with Next.js 16, TypeScript, Tailwind CSS, and Supabase. Tracks workouts, exercises, and templates with cloud sync so your data follows you across phone and laptop.
 
