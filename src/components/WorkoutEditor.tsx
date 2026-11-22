@@ -18,6 +18,7 @@ import {
   Info,
   ArrowLeftRight,
   Search,
+  BellRing,
 } from "lucide-react";
 import clsx from "clsx";
 import type {
@@ -33,6 +34,20 @@ import { useExercises, useWorkouts } from "@/lib/hooks";
 import { formatDate, formatDuration, formatSetSummary, formatWeight, SET_TYPE_SHORT, todayLocalISO } from "@/lib/format";
 import { bestAndLastForExercise } from "@/lib/stats";
 import { swapOptionsFor } from "@/lib/similar";
+import {
+  REMINDER_MINUTES,
+  SAVE_REQUEST_EVENT,
+  clearDraft,
+  closeSaveReminder,
+  dismissReminderOffer,
+  enableReminders,
+  filledSetCount,
+  loadDraft,
+  saveDraft,
+  shouldOfferReminders,
+  showSaveReminder,
+  type WorkoutDraft,
+} from "@/lib/draft";
 
 // Loaded only when opened, so the charting library stays out of the Log
 // page's initial download.
@@ -228,6 +243,7 @@ export function WorkoutEditor({
   initialBlocks,
   initialFootnotes,
   initialName,
+  resumeDraft,
 }: {
   workoutId?: string;
   mode?: "create" | "edit";
@@ -240,19 +256,25 @@ export function WorkoutEditor({
    */
   initialFootnotes?: Record<string, string>;
   initialName?: string;
+  /** An unsaved workout to pick up where it was left (create mode only). */
+  resumeDraft?: WorkoutDraft | null;
 }) {
   const router = useRouter();
   const exercises = useExercises();
   const workouts = useWorkouts();
-  const [date, setDate] = useState<string>(todayISO());
-  const [name, setName] = useState<string>(initialName ?? "");
-  const [bodyweight, setBodyweight] = useState<string>("");
+  const [date, setDate] = useState<string>(resumeDraft?.date ?? todayISO());
+  const [name, setName] = useState<string>(resumeDraft?.name ?? initialName ?? "");
+  const [bodyweight, setBodyweight] = useState<string>(resumeDraft?.bodyweight ?? "");
   // Footnotes attached to blocks added in-session (e.g. via the picker).
   // Keyed by block ID. Merged with `initialFootnotes` (passed in from the
   // template pre-fill) for rendering.
   const [runtimeFootnotes, setRuntimeFootnotes] = useState<Record<string, string>>({});
   const [blocks, setBlocks] = useState<WorkoutExercise[]>(
-    initialBlocks && initialBlocks.length > 0 ? initialBlocks : []
+    resumeDraft
+      ? resumeDraft.blocks
+      : initialBlocks && initialBlocks.length > 0
+        ? initialBlocks
+        : []
   );
   const [pickerOpen, setPickerOpen] = useState(false);
   const [newExercise, setNewExercise] = useState<{ name: string; muscleGroup: MuscleGroup } | null>(
@@ -276,6 +298,21 @@ export function WorkoutEditor({
   } | null>(null);
   const undoTimer = useRef<number | null>(null);
   const [hydrated, setHydrated] = useState(false);
+
+  // --- Unsaved-workout draft + "Done at the gym?" reminder (new workouts only)
+  // The form starts out pre-filled from a template, so it only counts as an
+  // unsaved workout once the user changes something (or it was resumed).
+  const isCreate = mode === "create";
+  const snapshot = JSON.stringify({ date, name, bodyweight, blocks });
+  const [initialSnapshot] = useState(snapshot);
+  const [touched, setTouched] = useState(Boolean(resumeDraft));
+  if (!touched && snapshot !== initialSnapshot) setTouched(true);
+  const [startedAt] = useState(() => resumeDraft?.startedAt ?? Date.now());
+  const reminderTimer = useRef<number | null>(null);
+  // The editor only mounts in the browser, so this can read straight away.
+  const [offerReminders, setOfferReminders] = useState(
+    () => isCreate && shouldOfferReminders()
+  );
 
   // hydrate from existing workout if editing
   useEffect(() => {
@@ -351,6 +388,68 @@ export function WorkoutEditor({
       if (undoTimer.current) window.clearTimeout(undoTimer.current);
     };
   }, []);
+
+  // Keep the unfinished workout on the phone as it changes.
+  useEffect(() => {
+    if (!isCreate || !hydrated || createdRef.current || !touched) return;
+    if (blocks.length === 0) {
+      if (loadDraft()) clearDraft();
+      return;
+    }
+    saveDraft({
+      name,
+      date,
+      bodyweight,
+      blocks,
+      footnotes: { ...(initialFootnotes ?? {}), ...runtimeFootnotes },
+      startedAt,
+      updatedAt: Date.now(),
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [snapshot, runtimeFootnotes, isCreate, hydrated, touched]);
+
+  // Remind after REMINDER_MINUTES without a change while sets are entered.
+  // Rescheduled on every change, and when the app comes back to the front
+  // (in case the phone paused the timer).
+  useEffect(() => {
+    if (!isCreate) return;
+    const schedule = () => {
+      if (reminderTimer.current) window.clearTimeout(reminderTimer.current);
+      reminderTimer.current = null;
+      const d = loadDraft();
+      if (!d || filledSetCount(d.blocks) === 0 || createdRef.current) return;
+      const due = d.updatedAt + REMINDER_MINUTES * 60_000;
+      reminderTimer.current = window.setTimeout(() => {
+        const latest = loadDraft();
+        if (latest && filledSetCount(latest.blocks) > 0 && !createdRef.current) {
+          void showSaveReminder(latest);
+        }
+      }, Math.max(0, due - Date.now()));
+    };
+    // A change means they're still training: clear any reminder showing.
+    if (touched) void closeSaveReminder();
+    schedule();
+    const onVisible = () => {
+      if (document.visibilityState === "visible") schedule();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      if (reminderTimer.current) window.clearTimeout(reminderTimer.current);
+    };
+  }, [snapshot, isCreate, touched]);
+
+  // The "Save your workout?" sheet (tapping another tab) asks us to save.
+  const saveRef = useRef<(goTo?: string) => void>(() => {});
+  useEffect(() => {
+    if (!isCreate) return;
+    const onRequest = (e: Event) => {
+      const goTo = (e as CustomEvent<{ goTo?: string }>).detail?.goTo;
+      saveRef.current(goTo);
+    };
+    window.addEventListener(SAVE_REQUEST_EVENT, onRequest);
+    return () => window.removeEventListener(SAVE_REQUEST_EVENT, onRequest);
+  }, [isCreate]);
 
   function createNewExercise() {
     if (!newExercise) return;
@@ -437,7 +536,7 @@ export function WorkoutEditor({
     );
   }
 
-  function save() {
+  function save(goTo?: string) {
     if (blocks.length === 0) return;
     // prune empty blocks — a block is "empty" when none of its sets have any
     // value entered (weight, reps, duration, or distance).
@@ -473,15 +572,28 @@ export function WorkoutEditor({
         bodyweight: bw,
         exercises: cleaned,
       });
+      // Saved for real, so the phone-only copy and any reminder can go.
+      if (reminderTimer.current) window.clearTimeout(reminderTimer.current);
+      clearDraft();
+      void closeSaveReminder();
       // Send the user to the history list — there's no /history/[id] page
       // in this build (the detail view is a modal opened from the list), so
       // pushing to that URL used to 404. Tapping the new workout in the
       // list opens the detail modal.
-      router.push("/history");
+      router.push(goTo ?? "/history");
       return;
     }
     setSaving(true);
     setTimeout(() => setSaving(false), 600);
+  }
+
+  useEffect(() => {
+    saveRef.current = save;
+  });
+
+  async function turnOnReminders() {
+    await enableReminders();
+    setOfferReminders(false);
   }
 
   function handleDelete() {
@@ -706,6 +818,38 @@ export function WorkoutEditor({
         );
       })}
 
+      {/* Offer the "Done at the gym?" reminder once a workout is under way */}
+      {offerReminders && touched && filledSetCount(blocks) > 0 && (
+        <div className="flex items-start gap-3 rounded-2xl border border-emerald-500/40 bg-emerald-500/10 p-3">
+          <BellRing className="mt-0.5 h-5 w-5 shrink-0 text-emerald-400" aria-hidden />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-semibold text-zinc-100">Remind me to save</div>
+            <p className="mt-0.5 text-xs text-zinc-400">
+              Get a notification if you stop logging for {REMINDER_MINUTES} minutes
+              without saving.
+            </p>
+            <button
+              type="button"
+              onClick={turnOnReminders}
+              className="mt-2 inline-flex h-8 items-center rounded-full bg-emerald-500 px-3 text-xs font-bold text-zinc-950"
+            >
+              Turn on
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => {
+              dismissReminderOffer();
+              setOfferReminders(false);
+            }}
+            className="rounded-md p-1 text-zinc-500 hover:bg-zinc-800"
+            aria-label="No thanks"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+      )}
+
       {/* Add exercise */}
       <button
         type="button"
@@ -730,7 +874,7 @@ export function WorkoutEditor({
           )}
           <button
             type="button"
-            onClick={save}
+            onClick={() => save()}
             disabled={blocks.length === 0}
             className={clsx(
               "flex h-12 flex-1 items-center justify-center gap-2 rounded-2xl bg-emerald-500 text-base font-semibold text-zinc-950 active:scale-[0.99] disabled:opacity-50"
