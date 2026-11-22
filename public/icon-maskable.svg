@@ -1,13 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" fill="#0a0a0a"/>
-  <!-- Safe zone: middle 80% of the canvas. -->
-  <g stroke="#10b981" stroke-width="40" stroke-linecap="round" fill="none">
-    <line x1="180" y1="200" x2="180" y2="312"/>
-    <line x1="140" y1="232" x2="140" y2="280"/>
-    <line x1="220" y1="232" x2="220" y2="280"/>
-    <line x1="332" y1="200" x2="332" y2="312"/>
-    <line x1="292" y1="232" x2="292" y2="280"/>
-    <line x1="372" y1="232" x2="372" y2="280"/>
-    <line x1="180" y1="256" x2="332" y2="256"/>
+  <rect width="512" height="512" fill="#0c0e0d"/>
+  <!-- Safe zone: middle 80% of the canvas, so the kettlebell is shrunk and centred. -->
+  <g transform="translate(256 256) scale(0.72) translate(-256 -262)">
+    <path d="M180 250 C 150 190, 160 128, 256 128 C 352 128, 362 190, 332 250" fill="none" stroke="#b8f35a" stroke-width="40" stroke-linecap="round"/>
+    <path d="M256 196 C 360 196, 386 270, 380 330 C 374 396, 326 424, 256 424 C 186 424, 138 396, 132 330 C 126 270, 152 196, 256 196 Z" fill="#b8f35a"/>
+    <rect x="196" y="300" width="120" height="20" rx="10" fill="#0c0e0d"/>
+    <rect x="196" y="340" width="84" height="20" rx="10" fill="#0c0e0d"/>
   </g>
 </svg>

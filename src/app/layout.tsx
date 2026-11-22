@@ -22,14 +22,14 @@ const jetbrainsMono = JetBrains_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Gym Tracker: log every set, spot every PR",
+  title: "LogBook: log every set, spot every PR",
   description:
     "A free workout log that opens in a tap, works offline, and shows you exactly where you are getting stronger. No sign-up needed.",
-  applicationName: "Gym Tracker",
+  applicationName: "LogBook",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "Gym Tracker",
+    title: "LogBook",
   },
   formatDetection: { telephone: false },
 };

@@ -9,8 +9,8 @@ const basePath = process.env.BASE_PATH ?? "";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
-    name: "Gym Tracker",
-    short_name: "Gym",
+    name: "LogBook",
+    short_name: "LogBook",
     description: "Log every set, spot every PR, and see where you are getting stronger. Free, works offline.",
     start_url: `${basePath}/`,
     scope: `${basePath}/`,

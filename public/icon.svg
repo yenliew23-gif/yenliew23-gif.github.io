@@ -1,12 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
-  <rect width="512" height="512" rx="96" fill="#0a0a0a"/>
-  <g stroke="#10b981" stroke-width="32" stroke-linecap="round" fill="none">
-    <line x1="120" y1="180" x2="120" y2="332"/>
-    <line x1="80" y1="220" x2="80" y2="292"/>
-    <line x1="160" y1="220" x2="160" y2="292"/>
-    <line x1="392" y1="180" x2="392" y2="332"/>
-    <line x1="352" y1="220" x2="352" y2="292"/>
-    <line x1="432" y1="220" x2="432" y2="292"/>
-    <line x1="120" y1="256" x2="392" y2="256"/>
+  <rect width="512" height="512" rx="96" fill="#0c0e0d"/>
+  <!-- LogBook kettlebell: lime bell with two "logged" lines on it. -->
+  <g transform="translate(0 -6)">
+    <path d="M180 250 C 150 190, 160 128, 256 128 C 352 128, 362 190, 332 250" fill="none" stroke="#b8f35a" stroke-width="40" stroke-linecap="round"/>
+    <path d="M256 196 C 360 196, 386 270, 380 330 C 374 396, 326 424, 256 424 C 186 424, 138 396, 132 330 C 126 270, 152 196, 256 196 Z" fill="#b8f35a"/>
+    <rect x="196" y="300" width="120" height="20" rx="10" fill="#0c0e0d"/>
+    <rect x="196" y="340" width="84" height="20" rx="10" fill="#0c0e0d"/>
   </g>
 </svg>
