@@ -14,6 +14,14 @@ async function main() {
     { input: SVG, out: "icon-192.png", size: 192 },
     { input: MASKABLE, out: "icon-maskable-192.png", size: 192 },
     { input: SVG, out: "icon-512.png", size: 512 },
+    // Versioned copies with new filenames, used by the manifest. Android only
+    // refreshes a home-screen icon when its URL changes, so bump these names
+    // (logbook-v2-...) whenever the icon art changes.
+    { input: SVG, out: "logbook-v1-180.png", size: 180 },
+    { input: SVG, out: "logbook-v1-192.png", size: 192 },
+    { input: MASKABLE, out: "logbook-v1-maskable-192.png", size: 192 },
+    { input: SVG, out: "logbook-v1-512.png", size: 512 },
+    { input: MASKABLE, out: "logbook-v1-maskable-512.png", size: 512 },
     { input: MASKABLE, out: "icon-maskable-512.png", size: 512 },
   ];
   for (const t of targets) {

@@ -9,6 +9,9 @@ const basePath = process.env.BASE_PATH ?? "";
 
 export default function manifest(): MetadataRoute.Manifest {
   return {
+    // Fixed app identity so renames or icon changes update the installed app
+    // instead of looking like a new one. Matches the old default (start_url).
+    id: `${basePath}/`,
     name: "LogBook",
     short_name: "LogBook",
     description: "Log every set, spot every PR, and see where you are getting stronger. Free, works offline.",
@@ -20,31 +23,31 @@ export default function manifest(): MetadataRoute.Manifest {
     theme_color: "#0c0e0d",
     icons: [
       {
-        src: `${basePath}/icon.svg`,
+        src: `${basePath}/logbook-v1.svg`,
         sizes: "any",
         type: "image/svg+xml",
         purpose: "any",
       },
       {
-        src: `${basePath}/icon-192.png`,
+        src: `${basePath}/logbook-v1-192.png`,
         sizes: "192x192",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: `${basePath}/icon-maskable-192.png`,
+        src: `${basePath}/logbook-v1-maskable-192.png`,
         sizes: "192x192",
         type: "image/png",
         purpose: "maskable",
       },
       {
-        src: `${basePath}/icon-512.png`,
+        src: `${basePath}/logbook-v1-512.png`,
         sizes: "512x512",
         type: "image/png",
         purpose: "any",
       },
       {
-        src: `${basePath}/icon-maskable-512.png`,
+        src: `${basePath}/logbook-v1-maskable-512.png`,
         sizes: "512x512",
         type: "image/png",
         purpose: "maskable",

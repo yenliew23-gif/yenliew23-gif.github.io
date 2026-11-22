@@ -55,10 +55,10 @@ export default function RootLayout({
     >
       <head>
         <link rel="manifest" href="/manifest.webmanifest" />
-        <link rel="icon" href="/icon.svg" type="image/svg+xml" />
+        <link rel="icon" href="/logbook-v1.svg" type="image/svg+xml" />
         <link
           rel="apple-touch-icon"
-          href="/apple-touch-icon.png"
+          href="/logbook-v1-180.png"
           sizes="180x180"
         />
         <script

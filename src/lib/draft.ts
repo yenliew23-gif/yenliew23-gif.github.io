@@ -189,8 +189,8 @@ export async function showSaveReminder(d: WorkoutDraft): Promise<void> {
       renotify?: boolean;
     } = {
       body: draftSummary(d),
-      icon: new URL("icon-192.png", reg.scope).toString(),
-      badge: new URL("icon-192.png", reg.scope).toString(),
+      icon: new URL("logbook-v1-192.png", reg.scope).toString(),
+      badge: new URL("logbook-v1-192.png", reg.scope).toString(),
       tag: "save-workout",
       renotify: true,
       data: { url: logUrl },
