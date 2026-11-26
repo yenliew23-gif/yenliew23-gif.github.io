@@ -530,9 +530,9 @@ function deltaTrend(delta: number, dead: number): Trend {
  *
  *   - weight-reps : top set (weight, then reps), total volume, total reps
  *   - reps        : best set and total reps
- *   - weight-time : top set by weight, then duration
- *   - time        : longest duration
- *   - distance-*  : longest distance
+ *   - weight-time : top set by weight, then duration; weight × time; total time
+ *   - time        : longest duration and total time across all sets
+ *   - distance-*  : longest distance and total distance
  *
  * When the two sessions used different UOMs we compare on the field they
  * share (weight-reps vs reps → reps, weight-time vs time → duration, …).
@@ -545,7 +545,8 @@ function deltaTrend(delta: number, dead: number): Trend {
  * We use OR (not weighted) so that, for example, dropping one rep at the
  * same weight doesn't hide a heavier top set, and adding a set at a lower
  * weight doesn't hide a rep count increase. Mixed signals defer to the
- * aggregate (volume, else total reps).
+ * aggregate (volume, else total reps, else weight × time, else total time,
+ * else total distance).
  */
 function computeBlockTrend(
   currentSets: SetEntry[],
@@ -583,6 +584,35 @@ function computeBlockTrend(
     const repsTrend = deltaTrend(reps(cur) - reps(prev), 1);
     aggregate ??= repsTrend;
     signals.push(repsTrend);
+  }
+  const sum = (sets: SetEntry[], value: (s: SetEntry) => number) =>
+    sets.reduce((t, set) => t + value(set), 0);
+  if (curType === "weight-time" && prevType === "weight-time") {
+    // Loaded carries / holds: weight × time across every set, so two
+    // 45s carries at 32kg beat one 60s carry at the same weight.
+    const load = (s: SetEntry) => (s.weight ?? 0) * (s.duration ?? 0);
+    if (sum(cur, load) > 0 || sum(prev, load) > 0) {
+      aggregate ??= deltaTrend(sum(cur, load) - sum(prev, load), 0.5);
+      signals.push(aggregate);
+    }
+  }
+  if (fields.includes("duration")) {
+    // Total time across all sets (e.g. dead hangs 2 × 45s = 90s beats
+    // 1 × 60s), so more sets of slightly shorter holds count as progress.
+    const timeTrend = deltaTrend(
+      sum(cur, (s) => s.duration ?? 0) - sum(prev, (s) => s.duration ?? 0),
+      FIELD_DEAD_ZONE.duration
+    );
+    aggregate ??= timeTrend;
+    signals.push(timeTrend);
+  }
+  if (fields.includes("distance")) {
+    const distTrend = deltaTrend(
+      sum(cur, (s) => s.distance ?? 0) - sum(prev, (s) => s.distance ?? 0),
+      FIELD_DEAD_ZONE.distance
+    );
+    aggregate ??= distTrend;
+    signals.push(distTrend);
   }
 
   const isUp = signals.includes("up");
